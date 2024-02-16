@@ -1,0 +1,10 @@
+[package]
+name = "fhe-lut"
+version = "0.1.0"
+edition = "2021"
+keywords = ["cryptography", "homomorphic-encryption", "HE", "FHE"]
+license = "MIT"
+
+[dependencies]
+rayon = "1.7.0"
+tfhe = { version = "0.5.1", features = ["boolean", "shortint", "integer"] }

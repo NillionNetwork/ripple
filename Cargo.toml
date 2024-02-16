@@ -8,3 +8,5 @@ license = "MIT"
 [dependencies]
 rayon = "1.7.0"
 tfhe = { version = "0.5.1", features = ["boolean", "shortint", "integer"] }
+linfa-datasets = { version = "0.7", features = ["iris", "winequality"] }
+csv = "1.3"

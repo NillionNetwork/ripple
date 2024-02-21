@@ -89,7 +89,10 @@ fn main() {
             norm.push(p / sum_p);
         }
         let class = argmax(&probabilities).unwrap();
-        println!("[{}] predicted {:?}, target {:?} probabilities {:?}", num, class, target, norm);
+        println!(
+            "[{}] predicted {:?}, target {:?} probabilities {:?}",
+            num, class, target, norm
+        );
         if class == *target {
             total += 1;
         }

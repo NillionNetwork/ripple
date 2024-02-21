@@ -9,7 +9,7 @@ fn to_signed(x: u64) -> i64 {
 }
 
 fn from_signed(x: i64) -> u64 {
-    (x as i128).rem_euclid(1i128 << 64) as u64 
+    (x as i128).rem_euclid(1i128 << 64) as u64
 }
 
 fn quantize(x: f64, precision: u8) -> u64 {
@@ -21,7 +21,7 @@ fn unquantize(x: u64, precision: u8) -> f64 {
 }
 
 fn add(a: u64, b: u64) -> u64 {
-    (a as u128 + b as u128).rem_euclid(1u128 << 64) as u64 
+    (a as u128 + b as u128).rem_euclid(1u128 << 64) as u64
 }
 
 fn mul(a: u64, b: u64) -> u64 {
@@ -33,11 +33,7 @@ fn truncate(x: u64, precision: u8) -> u64 {
 }
 
 fn sigmoid(x: u64, input_precision: u8, output_precision: u8) -> u64 {
-    let x = if x > (1u64 << 63) {
-        (x as i128 - 1i128 << 64) as f64
-    } else {
-        x as f64
-    };
+    let x = to_signed(x) as f64;
     let shift = (1u128 << input_precision) as f64;
     let exp = (x / shift).exp();
     (exp * ((1u128 << output_precision) as f64)) as u64
@@ -125,7 +121,7 @@ fn means_and_stds(dataset: &[(Vec<f64>, usize)], num_features: usize) -> (Vec<f6
 }
 
 fn main() {
-    let precision = 16;
+    let precision = 6;
     let (weights, biases) = load_weights_and_biases();
     let (weights_int, bias_int) = quantize_weights_and_biases(&weights, &biases, precision);
 
@@ -158,7 +154,10 @@ fn main() {
         for p in probabilities {
             norm.push(p as f32 / sum as f32);
         }
-        println!("[{}] predicted {:?}, target {:?} probabilities {:?}", num, class, target, norm);
+        println!(
+            "[{}] predicted {:?}, target {:?} probabilities {:?}",
+            num, class, target, norm
+        );
         if class == *target {
             total += 1;
         }

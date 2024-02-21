@@ -7,6 +7,16 @@ license = "MIT"
 
 [dependencies]
 rayon = "1.7.0"
-tfhe = { version = "0.5.1", features = ["boolean", "shortint", "integer"] }
+tfhe = { version = "0.5.1", features = ["boolean", "shortint", "integer", "x86_64-unix"] }
 linfa-datasets = { version = "0.7", features = ["iris", "winequality"] }
 csv = "1.3"
+
+
+[[bin]]
+name = "plain_lr"
+path = "src/plain_lr.rs"
+
+[[bin]]
+name = "encrypted_lr"
+path = "src/encrypted_lr.rs"
+

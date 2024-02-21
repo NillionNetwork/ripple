@@ -102,7 +102,7 @@ fn main() {
     for (num, (sample, target)) in iris_dataset.iter().enumerate() {
         let mut probabilities = vec![];
         for (model, bias) in weights_int.iter().zip(bias_int.iter()) {
-            let mut prediction = 0;
+            let mut prediction = *bias;
             for ((&s, w), (mean, std)) in sample
                 .iter()
                 .zip(model.iter())
@@ -110,7 +110,7 @@ fn main() {
             {
                 let n = (s - mean) / std;
                 let quantized = quantize(n as f32, precision);
-                prediction += w * quantized + bias;
+                prediction += w * quantized;
             }
             let activation = sigmoid(prediction, precision * 2, precision);
             probabilities.push(activation);

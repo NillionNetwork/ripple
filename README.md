@@ -10,7 +10,7 @@ For `x86_64`-based machines running Unix-like OSes:
 ❯❯ cargo b --release --features x86
 ```
 
-For Apple Silicon or `aarch64`-based machines (e.g., Apple M2) running Unix-like OSes:
+For Apple Silicon or `aarch64`-based machines running Unix-like OSes:
 ```bash
 ❯❯ cargo b --release --features aarch64
 ```

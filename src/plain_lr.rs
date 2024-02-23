@@ -1,5 +1,8 @@
 use std::fs::File;
 
+use debug_print::debug_println;
+use rayon::prelude::*;
+
 fn to_signed(x: u64) -> i64 {
     if x > (1u64 << 63) {
         (x as i128 - (1i128 << 64)) as i64
@@ -84,22 +87,24 @@ fn quantize_weights_and_biases(
     (weights_int, bias_int)
 }
 
-fn prepare_iris_dataset() -> Vec<(Vec<f64>, usize)> {
+fn prepare_iris_dataset() -> (Vec<Vec<f64>>, Vec<usize>) {
     let iris = linfa_datasets::iris();
     let mut iris_dataset = vec![];
+    let mut targets = vec![];
 
     for (sample, target) in iris.sample_iter() {
-        iris_dataset.push((sample.to_vec(), *target.first().unwrap()));
+        iris_dataset.push(sample.to_vec());
+        targets.push(*target.first().unwrap());
     }
 
-    iris_dataset
+    (iris_dataset, targets)
 }
 
-fn means_and_stds(dataset: &[(Vec<f64>, usize)], num_features: usize) -> (Vec<f64>, Vec<f64>) {
+fn means_and_stds(dataset: &[Vec<f64>], num_features: usize) -> (Vec<f64>, Vec<f64>) {
     let mut means = vec![0f64; num_features];
     let mut stds = vec![0f64; num_features];
 
-    for (sample, _) in dataset.iter() {
+    for sample in dataset.iter() {
         for (feature, s) in sample.iter().enumerate() {
             means[feature] += s;
         }
@@ -107,7 +112,7 @@ fn means_and_stds(dataset: &[(Vec<f64>, usize)], num_features: usize) -> (Vec<f6
     for mean in means.iter_mut() {
         *mean /= dataset.len() as f64;
     }
-    for (sample, _) in dataset.iter() {
+    for sample in dataset.iter() {
         for (feature, s) in sample.iter().enumerate() {
             let dev = s - means[feature];
             stds[feature] += dev * dev;
@@ -125,39 +130,40 @@ fn main() {
     let (weights, biases) = load_weights_and_biases();
     let (weights_int, bias_int) = quantize_weights_and_biases(&weights, &biases, precision);
 
-    let iris_dataset = prepare_iris_dataset();
-    let num_features = iris_dataset[0].0.len();
+    let (iris_dataset, targets) = prepare_iris_dataset();
+    let num_features = iris_dataset[0].len();
     let (means, stds) = means_and_stds(&iris_dataset, num_features);
 
+    let quantized_dataset: Vec<Vec<_>> = iris_dataset
+        .par_iter() // Use par_iter() for parallel iteration
+        .map(|sample| {
+            sample
+                .par_iter()
+                .zip(means.par_iter().zip(stds.par_iter()))
+                .map(|(&s, (mean, std))| quantize((s - mean) / std, precision))
+                .collect()
+        })
+        .collect();
+
     let mut total = 0;
-    for (num, (sample, target)) in iris_dataset.iter().enumerate() {
-        let mut probabilities = vec![];
-        let mut sum = 0u64;
-        for (model, bias) in weights_int.iter().zip(bias_int.iter()) {
-            let mut prediction = *bias;
-            for ((&s, w), (mean, std)) in sample
-                .iter()
-                .zip(model.iter())
-                .zip(means.iter().zip(stds.iter()))
-            {
-                let n = (s - mean) / std;
-                let quantized = quantize(n, precision);
-                let cur = truncate(mul(*w, quantized), precision);
-                prediction = add(prediction, cur);
-            }
-            let activation = sigmoid(prediction, precision, precision);
-            probabilities.push(activation);
-            sum = add(sum, activation);
-        }
+    for (target, sample) in targets.iter().zip(quantized_dataset.iter()) {
+        // Server computation
+        let probabilities: Vec<_> = weights_int
+            .par_iter()
+            .zip(bias_int.par_iter())
+            .map(|(model, &bias)| {
+                let mut prediction = bias;
+                for (&s, &w) in sample.iter().zip(model.iter()) {
+                    let cur = truncate(mul(w, s), precision);
+                    prediction = add(prediction, cur);
+                }
+                sigmoid(prediction, precision, precision)
+            })
+            .collect();
+
+        // Client computation
         let class = argmax(&probabilities).unwrap();
-        let mut norm = vec![];
-        for p in probabilities {
-            norm.push(p as f32 / sum as f32);
-        }
-        println!(
-            "[{}] predicted {:?}, target {:?} probabilities {:?}",
-            num, class, target, norm
-        );
+        debug_println!("predicted {class:?}, target {target:?}");
         if class == *target {
             total += 1;
         }

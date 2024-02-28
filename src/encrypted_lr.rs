@@ -1,195 +1,136 @@
-use std::fs::File;
+use std::time::Instant;
 
+use fhe_lut::common::*;
+use rayon::prelude::*;
 use tfhe::{
-    integer::{gen_keys_radix, wopbs::*, RadixCiphertext},
+    integer::{gen_keys_radix, wopbs::*},
     shortint::parameters::{
         parameters_wopbs_message_carry::WOPBS_PARAM_MESSAGE_2_CARRY_2_KS_PBS,
         PARAM_MESSAGE_2_CARRY_2_KS_PBS,
     },
 };
 
-fn quantize(x: f32, precision: u8) -> u64 {
-    let mut tmp = (x * ((1 << precision) as f32)) as i32;
-    tmp += 1 << (precision - 1);
-    tmp as u64
-}
-
-fn sigmoid(x: u64) -> u64 {
-    let x_f32 = x as f32;
-    let exp = (-x_f32 / ((1 << 16) as f32)).exp();
-    ((1.0 / (1.0 + exp)) * (1 << 8) as f32) as u64
-}
-
-fn argmax<T: PartialOrd>(slice: &[T]) -> Option<usize> {
-    slice
-        .iter()
-        .enumerate()
-        .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-        .map(|(index, _)| index)
-}
-
-fn load_weights_and_biases() -> (Vec<Vec<f32>>, Vec<f32>) {
-    let weights_csv = File::open("iris_weights.csv").unwrap();
-    let mut reader = csv::Reader::from_reader(weights_csv);
-    let mut weights = vec![];
-    let mut biases = vec![];
-
-    for result in reader.deserialize() {
-        let res: Vec<f32> = result.expect("a CSV record");
-        biases.push(res[0]);
-        weights.push(res[1..].to_vec());
-    }
-
-    (weights, biases)
-}
-
-fn quantize_weights_and_biases(
-    weights: &[Vec<f32>],
-    biases: &[f32],
-    precision: u8,
-) -> (Vec<Vec<u64>>, Vec<u64>) {
-    let weights_int = weights
-        .iter()
-        .map(|row| {
-            row.iter()
-                .map(|&w| quantize(w, precision))
-                .collect::<Vec<_>>()
-        })
-        .collect::<Vec<_>>();
-    let bias_int = biases
-        .iter()
-        .map(|&w| quantize(w, precision))
-        .collect::<Vec<_>>();
-
-    (weights_int, bias_int)
-}
-
-fn prepare_iris_dataset() -> Vec<(Vec<f64>, usize)> {
-    let iris = linfa_datasets::iris();
-    let mut iris_dataset = vec![];
-
-    for (sample, target) in iris.sample_iter() {
-        iris_dataset.push((sample.to_vec(), *target.first().unwrap()));
-    }
-
-    iris_dataset
-}
-
-fn means_and_stds(dataset: &[(Vec<f64>, usize)], num_features: usize) -> (Vec<f64>, Vec<f64>) {
-    let mut means = vec![0f64; num_features];
-    let mut stds = vec![0f64; num_features];
-
-    for (sample, _) in dataset.iter() {
-        for (feature, s) in sample.iter().enumerate() {
-            means[feature] += s;
-        }
-    }
-    for mean in means.iter_mut() {
-        *mean /= dataset.len() as f64;
-    }
-    for (sample, _) in dataset.iter() {
-        for (feature, s) in sample.iter().enumerate() {
-            let dev = s - means[feature];
-            stds[feature] += dev * dev;
-        }
-    }
-    for std in stds.iter_mut() {
-        *std = (*std / dataset.len() as f64).sqrt();
-    }
-
-    (means, stds)
-}
-
 fn main() {
     // ------- Client side ------- //
-    let precision = 8;
-    // Number of blocks per ciphertext
-    let nb_blocks = 4;
+    let bit_width = 16u8;
+    let precision = bit_width >> 2;
+    assert!(precision <= bit_width / 2);
 
+    // Number of blocks per ciphertext
+    let nb_blocks = bit_width / 2;
+
+    let start = Instant::now();
     // Generate radix keys
-    let (cks, sks) = gen_keys_radix(PARAM_MESSAGE_2_CARRY_2_KS_PBS, nb_blocks);
+    let (client_key, server_key) = gen_keys_radix(PARAM_MESSAGE_2_CARRY_2_KS_PBS, nb_blocks.into());
 
     // Generate key for PBS (without padding)
-    let wopbs_key = WopbsKey::new_wopbs_key(&cks, &sks, &WOPBS_PARAM_MESSAGE_2_CARRY_2_KS_PBS);
-
-    // Get message modulus (i.e. max value representable by radix ctxt)
-    let mut modulus = 1_u64;
-    for _ in 0..nb_blocks {
-        modulus *= cks.parameters().message_modulus().0 as u64;
-    }
-    println!("Ptxt Modulus: {:?}", modulus);
+    let wopbs_key = WopbsKey::new_wopbs_key(
+        &client_key,
+        &server_key,
+        &WOPBS_PARAM_MESSAGE_2_CARRY_2_KS_PBS,
+    );
+    println!(
+        "Key generation done in {:?} sec.",
+        start.elapsed().as_secs_f64()
+    );
 
     let (weights, biases) = load_weights_and_biases();
-    let (weights_int, bias_int) = quantize_weights_and_biases(&weights, &biases, precision);
-    let iris_dataset = prepare_iris_dataset();
-    let num_features = iris_dataset[0].0.len();
+    let (weights_int, bias_int) =
+        quantize_weights_and_biases(&weights, &biases, precision, bit_width);
+    let (iris_dataset, targets) = prepare_iris_dataset();
+    let num_features = iris_dataset[0].len();
     let (means, stds) = means_and_stds(&iris_dataset, num_features);
 
-    // TODO(@jimouris): par_iter and map
-    let mut encrypted_dataset = vec![];
-    for (sample, _) in iris_dataset.iter() {
-        let mut input = vec![];
-        for (&s, (mean, std)) in sample.iter().zip(means.iter().zip(stds.iter())) {
-            let n = (s - mean) / std;
-            let quantized = quantize(n as f32, precision);
-            input.push(cks.encrypt(quantized));
-        }
-        encrypted_dataset.push(input);
-    }
+    let start = Instant::now();
+    let mut encrypted_dataset: Vec<Vec<_>> = iris_dataset
+        .par_iter() // Use par_iter() for parallel iteration
+        .map(|sample| {
+            sample
+                .par_iter()
+                .zip(means.par_iter().zip(stds.par_iter()))
+                .map(|(&s, (mean, std))| {
+                    let quantized = quantize((s - mean) / std, precision, bit_width);
+                    client_key.encrypt(quantized)
+                })
+                .collect()
+        })
+        .collect();
+    println!(
+        "Encryption done in {:?} sec.",
+        start.elapsed().as_secs_f64()
+    );
 
     // ------- Server side ------- //
 
     // Build LUT for Sigmoid
-    let sigmoid_lut = wopbs_key.generate_lut_radix(&encrypted_dataset[0][0], |x: u64| sigmoid(x));
+    let sigmoid_lut = wopbs_key.generate_lut_radix(&encrypted_dataset[0][0], |x: u64| {
+        exponential(x, 2 * precision, precision, bit_width)
+    });
 
-    let mut all_probabilities = vec![];
-    let mut cnt = 0;
-    for sample in encrypted_dataset.iter() {
-        let mut probabilities = vec![];
-        for (model, bias) in weights_int.iter().zip(bias_int.iter()) {
-            let mut prediction: RadixCiphertext = sks.create_trivial_radix(*bias, nb_blocks);
-            for ((encrypted_value, weight), (_, _)) in sample
+    let encrypted_dataset_short = encrypted_dataset.get_mut(0..4).unwrap();
+
+    let all_probabilities = encrypted_dataset_short
+        .par_iter_mut()
+        .enumerate()
+        .map(|(cnt, sample)| {
+            let start = Instant::now();
+            let probabilities = weights_int
                 .iter()
-                .zip(model.iter())
-                .zip(means.iter().zip(stds.iter()))
-            {
-                // prediction += weight * encrypted_value;
-                let ct_prod = sks.unchecked_small_scalar_mul(encrypted_value, *weight);
-                prediction = sks.unchecked_add(&ct_prod, &prediction);
-            }
-            prediction = wopbs_key.keyswitch_to_wopbs_params(&sks, &prediction);
-            let activation = wopbs_key.wopbs(&prediction, &sigmoid_lut);
-            prediction = wopbs_key.keyswitch_to_pbs_params(&activation);
-            probabilities.push(prediction);
-        }
-        println!("Finished inference #{:?}", cnt);
-        all_probabilities.push(probabilities);
-        cnt += 1;
-        if cnt == 2 {
-            break;
-        }
-    }
+                .zip(bias_int.iter())
+                // .par_iter()
+                // .zip(bias_int.par_iter())
+                .map(|(model, &bias)| {
+                    let scaled_bias = mul(1 << precision, bias, bit_width);
+                    let mut prediction =
+                        server_key.create_trivial_radix(scaled_bias, nb_blocks.into());
+                    for (s, &weight) in sample.iter_mut().zip(model.iter()) {
+                        let mut d: u64 = client_key.decrypt(&s);
+                        println!("s: {:?}", d);
+                        println!("weight: {:?}", weight);
+                        let ct_prod = server_key.smart_scalar_mul(s, weight);
+                        d = client_key.decrypt(&ct_prod);
+                        println!("mul result: {:?}", d);
+                        prediction = server_key.unchecked_add(&ct_prod, &prediction);
+                        // FIXME: DEBUG
+                        d = client_key.decrypt(&prediction);
+                        println!("MAC result: {:?}", d);
+                        println!();
+                    }
+                    println!();
+                    prediction = wopbs_key.keyswitch_to_wopbs_params(&server_key, &prediction);
+                    let activation = wopbs_key.wopbs(&prediction, &sigmoid_lut);
+
+                    let probability = wopbs_key.keyswitch_to_pbs_params(&activation);
+                    let d: u64 = client_key.decrypt(&probability);
+                    println!("Exponential result: {:?}", d);
+
+                    probability
+                })
+                .collect::<Vec<_>>();
+            println!(
+                "Finished inference #{:?} in {:?} sec.",
+                cnt,
+                start.elapsed().as_secs_f64()
+            );
+            probabilities
+        })
+        .collect::<Vec<_>>();
+    // }
 
     // ------- Client side ------- //
     let mut total = 0;
-    for (num, ((_, target), probabilities)) in iris_dataset
-        .iter()
-        .zip(all_probabilities.iter())
-        .enumerate()
-    {
+    for (num, (target, probabilities)) in targets.iter().zip(all_probabilities.iter()).enumerate() {
         let ptxt_probabilities = probabilities
             .iter()
-            .map(|p| cks.decrypt(p))
+            .map(|p| client_key.decrypt(p))
             .collect::<Vec<u64>>();
+        println!("{:?}", ptxt_probabilities);
         let class = argmax(&ptxt_probabilities).unwrap();
         println!("[{}] predicted {:?}, target {:?}", num, class, target);
         if class == *target {
             total += 1;
         }
-        if num == 2 {
-            break;
-        }
     }
-    let accuracy = (total as f32 / iris_dataset.len() as f32) * 100.0;
+    let accuracy = (total as f32 / encrypted_dataset_short.len() as f32) * 100.0;
     println!("Accuracy {accuracy}%");
 }

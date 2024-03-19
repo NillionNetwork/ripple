@@ -44,10 +44,7 @@ pub fn exponential(x: u64, input_precision: u8, output_precision: u8, bit_width:
     let x = to_signed(x, bit_width) as f64;
     let shift = (1u128 << input_precision) as f64;
     let exp = (x / shift).exp();
-    let ret = (exp * ((1u128 << output_precision) as f64)) as u64;
-    // println!("\t exp {x:?} --> {:?}", &ret);
-    ret
-    // ((1.0 / (1.0 + exp)) * (1 << output_precision) as f64) as u64
+    (exp * ((1u128 << output_precision) as f64)) as u64
 }
 
 pub fn argmax<T: PartialOrd>(slice: &[T]) -> Option<usize> {
@@ -83,13 +80,13 @@ pub fn quantize_weights_and_biases(
         .iter()
         .map(|row| {
             row.iter()
-                .map(|&w| quantize(w.into(), precision, bit_width))
+                .map(|&w| quantize(w, precision, bit_width))
                 .collect::<Vec<_>>()
         })
         .collect::<Vec<_>>();
     let bias_int = biases
         .iter()
-        .map(|&w| quantize(w.into(), precision, bit_width))
+        .map(|&w| quantize(w, precision, bit_width))
         .collect::<Vec<_>>();
 
     (weights_int, bias_int)

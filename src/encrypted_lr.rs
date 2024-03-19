@@ -84,7 +84,7 @@ fn main() {
                     let mut prediction =
                         server_key.create_trivial_radix(scaled_bias, nb_blocks.into());
                     for (s, &weight) in sample.iter_mut().zip(model.iter()) {
-                        let mut d: u64 = client_key.decrypt(&s);
+                        let mut d: u64 = client_key.decrypt(s);
                         println!("s: {:?}", d);
                         println!("weight: {:?}", weight);
                         let ct_prod = server_key.smart_scalar_mul(s, weight);

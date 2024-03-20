@@ -1,4 +1,4 @@
-use std::{collections::HashMap, fs::File, time::Instant};
+use std::{collections::HashMap, fs::File, io::BufReader, time::Instant};
 
 use fhe_lut::common::*;
 use rayon::prelude::*;
@@ -24,20 +24,12 @@ fn eval_sigmoid(x: u64, sigmoid_map: &HashMap<u64, u64>) -> u64 {
 }
 
 fn main() {
-    let file = File::open("lut16_quantized_lsb.json").unwrap();
-    let json = serde_json::from_reader(file).unwrap();
-    let kv_lut: Vec<KeyValue> = serde_json::from_value(json).unwrap();
-    let mut lut_lsb: HashMap<u64, u64> = HashMap::new();
-    for entry in kv_lut {
-        lut_lsb.insert(entry.key, entry.value);
-    }
-    let file = File::open("lut16_quantized_msb.json").unwrap();
-    let json = serde_json::from_reader(file).unwrap();
-    let kv_lut: Vec<KeyValue> = serde_json::from_value(json).unwrap();
-    let mut lut_msb: HashMap<u64, u64> = HashMap::new();
-    for entry in kv_lut {
-        lut_msb.insert(entry.key, entry.value);
-    }
+    let reader = BufReader::new(File::open("lut16_quantized_lsb.json").unwrap());
+    let lut_lsb: HashMap<u64, u64> = serde_json::from_reader(reader).unwrap();
+
+    let reader = BufReader::new(File::open("lut16_quantized_msb.json").unwrap());
+    let lut_msb: HashMap<u64, u64> = serde_json::from_reader(reader).unwrap();
+
     // ------- Client side ------- //
     let bit_width = 16u8;
     let precision = bit_width >> 2;

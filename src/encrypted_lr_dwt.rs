@@ -89,34 +89,6 @@ fn main() {
 
     // ------- Server side ------- //
 
-    // Dummy encryption for building LUTs
-    let ct_dummy = client_key.encrypt(2_u64);
-    let mut ct_test = ct_dummy.clone();
-    let ct_dummy = wopbs_key.keyswitch_to_wopbs_params(&server_key, &ct_dummy);
-
-    // Build LUT for Sigmoid
-    let sigmoid_lut_lsb =
-        wopbs_key.generate_lut_radix(&ct_dummy, |x: u64| eval_sigmoid(x, &lut_lsb));
-    let sigmoid_lut_msb =
-        wopbs_key.generate_lut_radix(&ct_dummy, |x: u64| eval_sigmoid(x, &lut_msb));
-
-    // FIXME: LUT TEST
-    let mut ct_dummy = wopbs_key.keyswitch_to_pbs_params(&ct_dummy);
-    ct_dummy = server_key.smart_mul(&mut ct_dummy, &mut ct_test);
-    let test: u64 = client_key.decrypt(&ct_dummy);
-    println!("Test Input: {:?}", &test);
-    println!("Expected activation (LSB): {:?}", &lut_lsb[&test]);
-    println!("Expected activation (MSB): {:?}", &lut_msb[&test]);
-    let ct_dummy = wopbs_key.keyswitch_to_wopbs_params(&server_key, &ct_dummy);
-    let activation_lsb = wopbs_key.wopbs(&ct_dummy, &sigmoid_lut_lsb);
-    let activation_lsb = wopbs_key.keyswitch_to_pbs_params(&activation_lsb);
-    let test: u64 = client_key.decrypt(&activation_lsb);
-    println!("Activation (LSB): {:?}", &test);
-    let activation_msb = wopbs_key.wopbs(&ct_dummy, &sigmoid_lut_msb);
-    let activation_msb = wopbs_key.keyswitch_to_pbs_params(&activation_msb);
-    let test: u64 = client_key.decrypt(&activation_msb);
-    println!("Activation (MSB): {:?}", &test);
-
     let encrypted_dataset_short = encrypted_dataset.get_mut(0..1).unwrap();
     let all_probabilities = encrypted_dataset_short
         .iter_mut()
@@ -149,6 +121,15 @@ fn main() {
                     println!("Expected activation (LSB): {:?}", &lut_lsb[&test]);
                     println!("Expected activation (MSB): {:?}", &lut_msb[&test]);
                     // Keyswitch and Bootstrap
+                    let lut_gen_start = Instant::now();
+                    let sigmoid_lut_lsb = wopbs_key
+                        .generate_lut_radix(&prediction_msb, |x: u64| eval_sigmoid(x, &lut_lsb));
+                    let sigmoid_lut_msb = wopbs_key
+                        .generate_lut_radix(&prediction_msb, |x: u64| eval_sigmoid(x, &lut_msb));
+                    println!(
+                        "LUT generation done in {:?} sec.",
+                        lut_gen_start.elapsed().as_secs_f64()
+                    );
                     prediction = wopbs_key.keyswitch_to_wopbs_params(&server_key, &prediction_msb);
                     let activation_lsb = wopbs_key.wopbs(&prediction, &sigmoid_lut_lsb);
                     let activation_lsb = wopbs_key.keyswitch_to_pbs_params(&activation_lsb);

@@ -108,18 +108,12 @@ fn main() {
                         let ct_prod = server_key.smart_scalar_mul(s, weight);
                         prediction = server_key.unchecked_add(&ct_prod, &prediction);
                     }
-                    let test: u64 = client_key.decrypt(&prediction);
-                    println!("Original: {:?}", &test);
                     // Truncate
                     let prediction_blocks = &prediction.clone().into_blocks()
                         [(nb_blocks as usize)..((nb_blocks << 1) as usize)];
                     let prediction_msb = RadixCiphertext::from_blocks(prediction_blocks.to_vec());
                     // For some reason, the truncation is off by 1...
                     let prediction_msb = server_key.unchecked_scalar_add(&prediction_msb, 1);
-                    let test: u64 = client_key.decrypt(&prediction_msb);
-                    println!("Truncated: {:?}", &test);
-                    println!("Expected activation (LSB): {:?}", &lut_lsb[&test]);
-                    println!("Expected activation (MSB): {:?}", &lut_msb[&test]);
                     // Keyswitch and Bootstrap
                     let lut_gen_start = Instant::now();
                     let sigmoid_lut_lsb = wopbs_key
@@ -131,25 +125,16 @@ fn main() {
                         lut_gen_start.elapsed().as_secs_f64()
                     );
                     prediction = wopbs_key.keyswitch_to_wopbs_params(&server_key, &prediction_msb);
-                    let activation_lsb = wopbs_key.wopbs(&prediction, &sigmoid_lut_lsb);
-                    let activation_lsb = wopbs_key.keyswitch_to_pbs_params(&activation_lsb);
-                    let test: u64 = client_key.decrypt(&activation_lsb);
-                    println!("Activation (LSB): {:?}", &test);
-                    let activation_msb = wopbs_key.wopbs(&prediction, &sigmoid_lut_msb);
-                    let activation_msb = wopbs_key.keyswitch_to_pbs_params(&activation_msb);
-                    let test: u64 = client_key.decrypt(&activation_msb);
-                    println!("Activation (MSB): {:?}", &test);
-
-                    // let (activation_lsb, activation_msb) = rayon::join(
-                    //   || {
-                    //       let activation_lsb = wopbs_key.wopbs(&prediction, &sigmoid_lut_lsb);
-                    //       wopbs_key.keyswitch_to_pbs_params(&activation_lsb)
-                    //   },
-                    //   || {
-                    //     let activation_msb = wopbs_key.wopbs(&prediction, &sigmoid_lut_msb);
-                    //     wopbs_key.keyswitch_to_pbs_params(&activation_msb)
-                    //   }
-                    // );
+                    let (activation_lsb, activation_msb) = rayon::join(
+                        || {
+                            let activation_lsb = wopbs_key.wopbs(&prediction, &sigmoid_lut_lsb);
+                            wopbs_key.keyswitch_to_pbs_params(&activation_lsb)
+                        },
+                        || {
+                            let activation_msb = wopbs_key.wopbs(&prediction, &sigmoid_lut_msb);
+                            wopbs_key.keyswitch_to_pbs_params(&activation_msb)
+                        },
+                    );
                     let mut lsb_blocks = activation_lsb.clone().into_blocks();
                     let msb_blocks = activation_msb.clone().into_blocks();
                     lsb_blocks.extend(msb_blocks);

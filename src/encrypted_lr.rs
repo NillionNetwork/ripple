@@ -63,7 +63,7 @@ fn main() {
     // ------- Server side ------- //
 
     // Build LUT for Sigmoid
-    let sigmoid_lut = wopbs_key.generate_lut_radix(&encrypted_dataset[0][0], |x: u64| {
+    let exponential_lut = wopbs_key.generate_lut_radix(&encrypted_dataset[0][0], |x: u64| {
         exponential(x, 2 * precision, precision, bit_width)
     });
 
@@ -80,9 +80,7 @@ fn main() {
                 // .par_iter()
                 // .zip(bias_int.par_iter())
                 .map(|(model, &bias)| {
-                    let scaled_bias = mul(1 << precision, bias, bit_width);
-                    let mut prediction =
-                        server_key.create_trivial_radix(scaled_bias, nb_blocks.into());
+                    let mut prediction = server_key.create_trivial_radix(bias, nb_blocks.into());
                     for (s, &weight) in sample.iter_mut().zip(model.iter()) {
                         let mut d: u64 = client_key.decrypt(s);
                         println!("s: {:?}", d);
@@ -98,7 +96,7 @@ fn main() {
                     }
                     println!();
                     prediction = wopbs_key.keyswitch_to_wopbs_params(&server_key, &prediction);
-                    let activation = wopbs_key.wopbs(&prediction, &sigmoid_lut);
+                    let activation = wopbs_key.wopbs(&prediction, &exponential_lut);
 
                     let probability = wopbs_key.keyswitch_to_pbs_params(&activation);
                     let d: u64 = client_key.decrypt(&probability);

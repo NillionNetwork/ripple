@@ -1,4 +1,5 @@
-use std::{collections::HashMap, fs::File, io::BufReader, time::Instant};
+use std::time::Instant;
+// collections::HashMap, fs::File, io::BufReader,
 
 use fhe_lut::common::*;
 use rayon::prelude::*;
@@ -19,21 +20,23 @@ struct KeyValue {
     value: u64,
 }
 
-fn eval_sigmoid(x: u64, sigmoid_map: &HashMap<u64, u64>) -> u64 {
-    sigmoid_map[&x]
+fn eval_exp(x: u64, exp_map: &Vec<u64>) -> u64 {
+    exp_map[x as usize]
 }
 
 fn main() {
-    let reader = BufReader::new(File::open("lut16_quantized_lsb.json").unwrap());
-    let lut_lsb: HashMap<u64, u64> = serde_json::from_reader(reader).unwrap();
+    // let reader = BufReader::new(File::open("lut16_quantized_lsb.json").unwrap());
+    // let lut_lsb: HashMap<u64, u64> = serde_json::from_reader(reader).unwrap();
 
-    let reader = BufReader::new(File::open("lut16_quantized_msb.json").unwrap());
-    let lut_msb: HashMap<u64, u64> = serde_json::from_reader(reader).unwrap();
+    // let reader = BufReader::new(File::open("lut16_quantized_msb.json").unwrap());
+    // let lut_msb: HashMap<u64, u64> = serde_json::from_reader(reader).unwrap();
 
     // ------- Client side ------- //
     let bit_width = 16u8;
     let precision = bit_width >> 2;
     assert!(precision <= bit_width / 2);
+
+    let (lut_lsb, lut_msb) = haar(precision, bit_width);
 
     // Number of blocks per ciphertext
     let nb_blocks = bit_width >> 2;
@@ -101,9 +104,8 @@ fn main() {
                 // .par_iter()
                 // .zip(bias_int.par_iter())
                 .map(|(model, &bias)| {
-                    let scaled_bias = mul(1 << precision, bias, bit_width);
                     let mut prediction =
-                        server_key.create_trivial_radix(scaled_bias, (nb_blocks << 1).into());
+                        server_key.create_trivial_radix(bias, (nb_blocks << 1).into());
                     for (s, &weight) in sample.iter_mut().zip(model.iter()) {
                         let ct_prod = server_key.smart_scalar_mul(s, weight);
                         prediction = server_key.unchecked_add(&ct_prod, &prediction);
@@ -116,10 +118,10 @@ fn main() {
                     let prediction_msb = server_key.unchecked_scalar_add(&prediction_msb, 1);
                     // Keyswitch and Bootstrap
                     let lut_gen_start = Instant::now();
-                    let sigmoid_lut_lsb = wopbs_key
-                        .generate_lut_radix(&prediction_msb, |x: u64| eval_sigmoid(x, &lut_lsb));
-                    let sigmoid_lut_msb = wopbs_key
-                        .generate_lut_radix(&prediction_msb, |x: u64| eval_sigmoid(x, &lut_msb));
+                    let exp_lut_lsb = wopbs_key
+                        .generate_lut_radix(&prediction_msb, |x: u64| eval_exp(x, &lut_lsb));
+                    let exp_lut_msb = wopbs_key
+                        .generate_lut_radix(&prediction_msb, |x: u64| eval_exp(x, &lut_msb));
                     println!(
                         "LUT generation done in {:?} sec.",
                         lut_gen_start.elapsed().as_secs_f64()
@@ -127,11 +129,11 @@ fn main() {
                     prediction = wopbs_key.keyswitch_to_wopbs_params(&server_key, &prediction_msb);
                     let (activation_lsb, activation_msb) = rayon::join(
                         || {
-                            let activation_lsb = wopbs_key.wopbs(&prediction, &sigmoid_lut_lsb);
+                            let activation_lsb = wopbs_key.wopbs(&prediction, &exp_lut_lsb);
                             wopbs_key.keyswitch_to_pbs_params(&activation_lsb)
                         },
                         || {
-                            let activation_msb = wopbs_key.wopbs(&prediction, &sigmoid_lut_msb);
+                            let activation_msb = wopbs_key.wopbs(&prediction, &exp_lut_msb);
                             wopbs_key.keyswitch_to_pbs_params(&activation_msb)
                         },
                     );

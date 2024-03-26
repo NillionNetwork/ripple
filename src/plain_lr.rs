@@ -2,8 +2,27 @@
 use fhe_lut::common::*;
 use rayon::prelude::*;
 
+pub fn quantize_dataset(
+    dataset: &Vec<Vec<f64>>,
+    means: &Vec<f64>,
+    stds: &Vec<f64>,
+    precision: u8,
+    bit_width: u8,
+) -> Vec<Vec<u64>> {
+    dataset
+        .par_iter() // Use par_iter() for parallel iteration
+        .map(|sample| {
+            sample
+                .par_iter()
+                .zip(means.par_iter().zip(stds.par_iter()))
+                .map(|(&s, (mean, std))| quantize((s - mean) / std, precision, bit_width))
+                .collect()
+        })
+        .collect()
+}
+
 fn main() {
-    let bit_width = 8u8;
+    let bit_width = 16u8;
     let precision = bit_width >> 2;
 
     let (weights, biases) = load_weights_and_biases();
@@ -23,7 +42,7 @@ fn main() {
             .par_iter()
             .zip(bias_int.par_iter())
             .map(|(model, &bias)| {
-                let mut prediction = (1 << precision) * bias;
+                let mut prediction = bias;
                 for (&s, &w) in sample.iter().zip(model.iter()) {
                     println!("s: {:?}", s);
                     println!("weight: {:?}", w);

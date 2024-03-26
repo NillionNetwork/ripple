@@ -1,6 +1,5 @@
+use dwt::{transform, wavelet::Haar, Operation};
 use std::fs::File;
-
-use rayon::prelude::*;
 
 pub fn to_signed(x: u64, bit_width: u8) -> i64 {
     if x > (1u64 << (bit_width - 1)) {
@@ -18,12 +17,6 @@ pub fn quantize(x: f64, precision: u8, bit_width: u8) -> u64 {
     from_signed((x * ((1u128 << precision) as f64)) as i64, bit_width)
 }
 
-pub fn quantize_encypted(x: f64, precision: u8) -> u64 {
-    let mut tmp = (x * ((1 << precision) as f64)) as i32;
-    tmp += 1 << (precision - 1);
-    tmp as u64
-}
-
 pub fn unquantize(x: u64, precision: u8, bit_width: u8) -> f64 {
     to_signed(x, bit_width) as f64 / ((1u128 << precision) as f64)
 }
@@ -34,10 +27,6 @@ pub fn add(a: u64, b: u64, bit_width: u8) -> u64 {
 
 pub fn mul(a: u64, b: u64, bit_width: u8) -> u64 {
     (a as u128 * b as u128).rem_euclid(1u128 << bit_width) as u64
-}
-
-pub fn truncate(x: u64, precision: u8, bit_width: u8) -> u64 {
-    from_signed(to_signed(x, bit_width) / (1i64 << precision), bit_width)
 }
 
 pub fn exponential(x: u64, input_precision: u8, output_precision: u8, bit_width: u8) -> u64 {
@@ -56,7 +45,7 @@ pub fn argmax<T: PartialOrd>(slice: &[T]) -> Option<usize> {
 }
 
 pub fn load_weights_and_biases() -> (Vec<Vec<f64>>, Vec<f64>) {
-    let weights_csv = File::open("iris_weights.csv").unwrap();
+    let weights_csv = File::open("data/iris_weights.csv").unwrap();
     let mut reader = csv::Reader::from_reader(weights_csv);
     let mut weights = vec![];
     let mut biases = vec![];
@@ -86,7 +75,8 @@ pub fn quantize_weights_and_biases(
         .collect::<Vec<_>>();
     let bias_int = biases
         .iter()
-        .map(|&w| quantize(w, precision, bit_width))
+        // Quantize and double precision as bias will be added to double precision terms
+        .map(|&b| mul(1 << precision, quantize(b, precision, bit_width), bit_width))
         .collect::<Vec<_>>();
 
     (weights_int, bias_int)
@@ -130,21 +120,21 @@ pub fn means_and_stds(dataset: &[Vec<f64>], num_features: usize) -> (Vec<f64>, V
     (means, stds)
 }
 
-pub fn quantize_dataset(
-    dataset: &Vec<Vec<f64>>,
-    means: &Vec<f64>,
-    stds: &Vec<f64>,
-    precision: u8,
-    bit_width: u8,
-) -> Vec<Vec<u64>> {
-    dataset
-        .par_iter() // Use par_iter() for parallel iteration
-        .map(|sample| {
-            sample
-                .par_iter()
-                .zip(means.par_iter().zip(stds.par_iter()))
-                .map(|(&s, (mean, std))| quantize((s - mean) / std, precision, bit_width))
-                .collect()
-        })
-        .collect()
+pub fn haar(precision: u8, bit_width: u8) -> (Vec<u64>, Vec<u64>) {
+    let max = 1 << bit_width;
+    let mut data = Vec::new();
+    for x in 0..max {
+        data.push(unquantize(x, precision, bit_width).exp());
+    }
+    let level = 2u8;
+    transform(&mut data, Operation::Forward, &Haar::new(), level as usize);
+    let coef_len = 1 << (bit_width - level);
+    let haar = data
+        .get(0..coef_len)
+        .unwrap()
+        .into_iter()
+        .map(|x| quantize(*x, precision, bit_width));
+    let lsb = haar.clone().map(|x| x & 0xFF).collect();
+    let msb = haar.map(|x| x >> (bit_width / 2) & 0xFF).collect();
+    (lsb, msb)
 }

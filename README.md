@@ -1,6 +1,6 @@
-<h1 align="center">FHE LUT
-  <a href="https://github.com/NillionNetwork/fhe-lut/actions/workflows/ci-build.yml"><img src="https://github.com/NillionNetwork/fhe-lut/workflows/ci-build/badge.svg"></a>
-  <a href="https://github.com/NillionNetwork/fhe-lut/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
+<h1 align="center">Ripple
+  <a href="https://github.com/NillionNetwork/ripple/actions/workflows/ci-build.yml"><img src="https://github.com/NillionNetwork/ripple/workflows/ci-build/badge.svg"></a>
+  <a href="https://github.com/NillionNetwork/ripple/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg"></a>
 </h1>
 
 # Building

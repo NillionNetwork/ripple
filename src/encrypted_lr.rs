@@ -12,7 +12,7 @@ use tfhe::{
 
 fn main() {
     // ------- Client side ------- //
-    let bit_width = 16u8;
+    let bit_width = 32u8;
     let precision = bit_width >> 2;
     assert!(precision <= bit_width / 2);
 
@@ -36,10 +36,10 @@ fn main() {
 
     let (weights, bias) = load_weights_and_biases();
     let (weights_int, bias_int) = quantize_weights_and_bias(&weights, bias, precision, bit_width);
-    let (iris_dataset, targets) = prepare_penguins_dataset();
+    let (dataset, targets) = prepare_penguins_dataset();
 
     let start = Instant::now();
-    let mut encrypted_dataset: Vec<Vec<_>> = iris_dataset
+    let mut encrypted_dataset: Vec<Vec<_>> = dataset
         .par_iter() // Use par_iter() for parallel iteration
         .map(|sample| {
             sample
@@ -73,24 +73,13 @@ fn main() {
 
             let mut prediction = server_key.create_trivial_radix(bias_int, nb_blocks.into());
             for (s, &weight) in sample.iter_mut().zip(weights_int.iter()) {
-                let mut d: u64 = client_key.decrypt(s);
-                println!("s: {:?}", d);
-                println!("weight: {:?}", weight);
                 let ct_prod = server_key.smart_scalar_mul(s, weight);
-                d = client_key.decrypt(&ct_prod);
-                println!("mul result: {:?}", d);
                 prediction = server_key.unchecked_add(&ct_prod, &prediction);
-                // FIXME: DEBUG
-                d = client_key.decrypt(&prediction);
-                println!("MAC result: {:?}", d);
-                println!();
             }
-            println!();
             prediction = wopbs_key.keyswitch_to_wopbs_params(&server_key, &prediction);
             let activation = wopbs_key.wopbs(&prediction, &sigmoid_lut);
             let probability = wopbs_key.keyswitch_to_pbs_params(&activation);
-            let d: u64 = client_key.decrypt(&probability);
-            println!("Sigmoid result: {:?}", d);
+
             println!(
                 "Finished inference #{:?} in {:?} sec.",
                 cnt,
@@ -99,12 +88,13 @@ fn main() {
             probability
         })
         .collect::<Vec<_>>();
-    // }
 
     // ------- Client side ------- //
     let mut total = 0;
     for (num, (target, probability)) in targets.iter().zip(all_probabilities.iter()).enumerate() {
-        let ptxt_probability = client_key.decrypt(probability);
+        // let ptxt_probability = client_key.decrypt(probability);
+        let ptxt_probability: u64 = client_key.decrypt(probability);
+
         println!("{:?}", ptxt_probability);
         let class = (ptxt_probability > quantize(0.5, precision, bit_width)) as usize;
         println!("[{}] predicted {:?}, target {:?}", num, class, target);

@@ -34,12 +34,9 @@ fn main() {
         start.elapsed().as_secs_f64()
     );
 
-    let (weights, biases) = load_weights_and_biases();
-    let (weights_int, bias_int) =
-        quantize_weights_and_biases(&weights, &biases, precision, bit_width);
-    let (iris_dataset, targets) = prepare_iris_dataset();
-    let num_features = iris_dataset[0].len();
-    let (means, stds) = means_and_stds(&iris_dataset, num_features);
+    let (weights, bias) = load_weights_and_biases();
+    let (weights_int, bias_int) = quantize_weights_and_bias(&weights, bias, precision, bit_width);
+    let (iris_dataset, targets) = prepare_penguins_dataset();
 
     let start = Instant::now();
     let mut encrypted_dataset: Vec<Vec<_>> = iris_dataset
@@ -47,9 +44,8 @@ fn main() {
         .map(|sample| {
             sample
                 .par_iter()
-                .zip(means.par_iter().zip(stds.par_iter()))
-                .map(|(&s, (mean, std))| {
-                    let quantized = quantize((s - mean) / std, precision, bit_width);
+                .map(|&s| {
+                    let quantized = quantize(s, precision, bit_width);
                     client_key.encrypt(quantized)
                 })
                 .collect()
@@ -63,8 +59,8 @@ fn main() {
     // ------- Server side ------- //
 
     // Build LUT for Sigmoid
-    let exponential_lut = wopbs_key.generate_lut_radix(&encrypted_dataset[0][0], |x: u64| {
-        exponential(x, 2 * precision, precision, bit_width)
+    let sigmoid_lut = wopbs_key.generate_lut_radix(&encrypted_dataset[0][0], |x: u64| {
+        sigmoid(x, 2 * precision, precision, bit_width)
     });
 
     let encrypted_dataset_short = encrypted_dataset.get_mut(0..4).unwrap();
@@ -74,56 +70,43 @@ fn main() {
         .enumerate()
         .map(|(cnt, sample)| {
             let start = Instant::now();
-            let probabilities = weights_int
-                .iter()
-                .zip(bias_int.iter())
-                // .par_iter()
-                // .zip(bias_int.par_iter())
-                .map(|(model, &bias)| {
-                    let mut prediction = server_key.create_trivial_radix(bias, nb_blocks.into());
-                    for (s, &weight) in sample.iter_mut().zip(model.iter()) {
-                        let mut d: u64 = client_key.decrypt(s);
-                        println!("s: {:?}", d);
-                        println!("weight: {:?}", weight);
-                        let ct_prod = server_key.smart_scalar_mul(s, weight);
-                        d = client_key.decrypt(&ct_prod);
-                        println!("mul result: {:?}", d);
-                        prediction = server_key.unchecked_add(&ct_prod, &prediction);
-                        // FIXME: DEBUG
-                        d = client_key.decrypt(&prediction);
-                        println!("MAC result: {:?}", d);
-                        println!();
-                    }
-                    println!();
-                    prediction = wopbs_key.keyswitch_to_wopbs_params(&server_key, &prediction);
-                    let activation = wopbs_key.wopbs(&prediction, &exponential_lut);
 
-                    let probability = wopbs_key.keyswitch_to_pbs_params(&activation);
-                    let d: u64 = client_key.decrypt(&probability);
-                    println!("Exponential result: {:?}", d);
-
-                    probability
-                })
-                .collect::<Vec<_>>();
+            let mut prediction = server_key.create_trivial_radix(bias_int, nb_blocks.into());
+            for (s, &weight) in sample.iter_mut().zip(weights_int.iter()) {
+                let mut d: u64 = client_key.decrypt(s);
+                println!("s: {:?}", d);
+                println!("weight: {:?}", weight);
+                let ct_prod = server_key.smart_scalar_mul(s, weight);
+                d = client_key.decrypt(&ct_prod);
+                println!("mul result: {:?}", d);
+                prediction = server_key.unchecked_add(&ct_prod, &prediction);
+                // FIXME: DEBUG
+                d = client_key.decrypt(&prediction);
+                println!("MAC result: {:?}", d);
+                println!();
+            }
+            println!();
+            prediction = wopbs_key.keyswitch_to_wopbs_params(&server_key, &prediction);
+            let activation = wopbs_key.wopbs(&prediction, &sigmoid_lut);
+            let probability = wopbs_key.keyswitch_to_pbs_params(&activation);
+            let d: u64 = client_key.decrypt(&probability);
+            println!("Sigmoid result: {:?}", d);
             println!(
                 "Finished inference #{:?} in {:?} sec.",
                 cnt,
                 start.elapsed().as_secs_f64()
             );
-            probabilities
+            probability
         })
         .collect::<Vec<_>>();
     // }
 
     // ------- Client side ------- //
     let mut total = 0;
-    for (num, (target, probabilities)) in targets.iter().zip(all_probabilities.iter()).enumerate() {
-        let ptxt_probabilities = probabilities
-            .iter()
-            .map(|p| client_key.decrypt(p))
-            .collect::<Vec<u64>>();
-        println!("{:?}", ptxt_probabilities);
-        let class = argmax(&ptxt_probabilities).unwrap();
+    for (num, (target, probability)) in targets.iter().zip(all_probabilities.iter()).enumerate() {
+        let ptxt_probability = client_key.decrypt(probability);
+        println!("{:?}", ptxt_probability);
+        let class = (ptxt_probability > quantize(0.5, precision, bit_width)) as usize;
         println!("[{}] predicted {:?}, target {:?}", num, class, target);
         if class == *target {
             total += 1;

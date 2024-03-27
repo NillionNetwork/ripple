@@ -14,7 +14,6 @@ serde_json = "1.0.114"
 serde = { version = "1.0.114", features = ["derive"] }
 tfhe = { version = "0.5.1", features = ["boolean", "shortint", "integer"] }
 dwt = "0.5.2"
-assert = "0.7"
 
 [features]
 x86 = ["tfhe/x86_64-unix"]

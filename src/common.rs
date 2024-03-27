@@ -30,95 +30,85 @@ pub fn mul(a: u64, b: u64, bit_width: u8) -> u64 {
     (a as u128 * b as u128).rem_euclid(1u128 << bit_width) as u64
 }
 
-pub fn exponential(x: u64, input_precision: u8, output_precision: u8, bit_width: u8) -> u64 {
+pub fn sigmoid(x: u64, input_precision: u8, output_precision: u8, bit_width: u8) -> u64 {
     let x = to_signed(x, bit_width) as f64;
     let shift = (1u128 << input_precision) as f64;
-    let exp = (x / shift).exp();
-    (exp * ((1u128 << output_precision) as f64)) as u64
+    let sig = 1f64 / (1f64 + (-x / shift).exp());
+    (sig * ((1u128 << output_precision) as f64)) as u64
 }
 
-pub fn argmax<T: PartialOrd>(slice: &[T]) -> Option<usize> {
-    slice
-        .iter()
-        .enumerate()
-        .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-        .map(|(index, _)| index)
-}
-
-pub fn load_weights_and_biases() -> (Vec<Vec<f64>>, Vec<f64>) {
-    let weights_csv = File::open("data/iris_weights.csv").unwrap();
+pub fn load_weights_and_biases() -> (Vec<f64>, f64) {
+    let weights_csv = File::open("data/penguins_weight.csv").unwrap();
     let mut reader = csv::Reader::from_reader(weights_csv);
     let mut weights = vec![];
-    let mut biases = vec![];
+    let mut bias = 0f64;
 
     for result in reader.deserialize() {
         let res: Vec<f64> = result.expect("a CSV record");
-        biases.push(res[0]);
-        weights.push(res[1..].to_vec());
+        bias = res[0];
+        weights = res[1..].to_vec();
     }
 
-    (weights, biases)
+    (weights, bias)
 }
 
-pub fn quantize_weights_and_biases(
-    weights: &[Vec<f64>],
-    biases: &[f64],
+pub fn quantize_weights_and_bias(
+    weights: &[f64],
+    bias: f64,
     precision: u8,
     bit_width: u8,
-) -> (Vec<Vec<u64>>, Vec<u64>) {
+) -> (Vec<u64>, u64) {
     let weights_int = weights
         .iter()
-        .map(|row| {
-            row.iter()
-                .map(|&w| quantize(w, precision, bit_width))
-                .collect::<Vec<_>>()
-        })
+        .map(|&w| quantize(w, precision, bit_width))
         .collect::<Vec<_>>();
-    let bias_int = biases
-        .iter()
-        // Quantize and double precision as bias will be added to double precision terms
-        .map(|&b| mul(1 << precision, quantize(b, precision, bit_width), bit_width))
-        .collect::<Vec<_>>();
+    // Quantize and double precision as bias will be added to double precision terms
+    let bias_int = mul(
+        1 << precision,
+        quantize(bias, precision, bit_width),
+        bit_width,
+    );
 
     (weights_int, bias_int)
 }
 
-pub fn prepare_iris_dataset() -> (Vec<Vec<f64>>, Vec<usize>) {
-    let iris = linfa_datasets::iris();
-    let mut iris_dataset = vec![];
-    let mut targets = vec![];
+pub fn prepare_penguins_dataset() -> (Vec<Vec<f64>>, Vec<usize>) {
+    let data_csv = File::open("data/penguins_data.csv").unwrap();
+    let mut reader = csv::Reader::from_reader(data_csv);
+    let mut dataset = vec![];
 
-    for (sample, target) in iris.sample_iter() {
-        iris_dataset.push(sample.to_vec());
-        targets.push(*target.first().unwrap());
+    for result in reader.deserialize() {
+        let res: Vec<f64> = result.expect("a CSV record");
+        dataset.push(res);
     }
 
-    (iris_dataset, targets)
+    let target_csv = File::open("data/penguins_target.csv").unwrap();
+    let mut reader = csv::Reader::from_reader(target_csv);
+    let mut targets = vec![];
+    for result in reader.deserialize() {
+        let res: Vec<f64> = result.expect("a CSV record");
+        targets.push(res[0] as usize);
+    }
+
+    (dataset, targets)
 }
 
 pub fn means_and_stds(dataset: &[Vec<f64>], num_features: usize) -> (Vec<f64>, Vec<f64>) {
-    let mut means = vec![0f64; num_features];
-    let mut stds = vec![0f64; num_features];
+    let mut maxs = vec![0f64; num_features];
+    let mut mins = vec![0f64; num_features];
 
     for sample in dataset.iter() {
         for (feature, s) in sample.iter().enumerate() {
-            means[feature] += s;
+            if maxs[feature] < *s {
+                maxs[feature] = *s;
+            }
+            if mins[feature] > *s {
+                mins[feature] = *s;
+            }
         }
-    }
-    for mean in means.iter_mut() {
-        *mean /= dataset.len() as f64;
-    }
-    for sample in dataset.iter() {
-        for (feature, s) in sample.iter().enumerate() {
-            let dev = s - means[feature];
-            stds[feature] += dev * dev;
-        }
-    }
-    for std in stds.iter_mut() {
-        *std = (*std / dataset.len() as f64).sqrt();
     }
 
-    (means, stds)
+    (mins, maxs)
 }
 
 pub fn haar(precision: u8, bit_width: u8) -> (Vec<u64>, Vec<u64>) {

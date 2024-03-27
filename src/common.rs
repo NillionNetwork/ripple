@@ -1,5 +1,6 @@
-use dwt::{transform, wavelet::Haar, Operation};
 use std::fs::File;
+
+use dwt::{transform, wavelet::Haar, Operation};
 
 pub fn to_signed(x: u64, bit_width: u8) -> i64 {
     if x > (1u64 << (bit_width - 1)) {
@@ -132,7 +133,7 @@ pub fn haar(precision: u8, bit_width: u8) -> (Vec<u64>, Vec<u64>) {
     let haar = data
         .get(0..coef_len)
         .unwrap()
-        .into_iter()
+        .iter()
         .map(|x| quantize(*x, precision, bit_width));
     let lsb = haar.clone().map(|x| x & 0xFF).collect();
     let msb = haar.map(|x| x >> (bit_width / 2) & 0xFF).collect();

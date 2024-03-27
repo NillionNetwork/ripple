@@ -21,10 +21,6 @@ x86 = ["tfhe/x86_64-unix"]
 aarch64 = ["tfhe/aarch64-unix"]
 
 [[bin]]
-name = "haar"
-path = "src/haar.rs"
-
-[[bin]]
 name = "float_lr"
 path = "src/float_lr.rs"
 
@@ -39,11 +35,3 @@ path = "src/encrypted_lr.rs"
 [[bin]]
 name = "encrypted_lr_dwt"
 path = "src/encrypted_lr_dwt.rs"
-
-[[bin]]
-name = "lut_test"
-path = "src/lut_test.rs"
-
-[[bin]]
-name = "lut_split_test"
-path = "src/lut_split_test.rs"

@@ -12,7 +12,7 @@ use tfhe::{
 
 fn main() {
     // ------- Client side ------- //
-    let bit_width = 32u8;
+    let bit_width = 16u8;
     let precision = bit_width >> 2;
     assert!(precision <= bit_width / 2);
 
@@ -58,18 +58,23 @@ fn main() {
 
     // ------- Server side ------- //
 
-    // Build LUT for Sigmoid
+    // Build LUT for Sigmoid -- Offline cost
+    let start = Instant::now();
+    println!("Generating LUT.");
     let sigmoid_lut = wopbs_key.generate_lut_radix(&encrypted_dataset[0][0], |x: u64| {
         sigmoid(x, 2 * precision, precision, bit_width)
     });
+    println!("Generated LUT in {:?} sec.", start.elapsed().as_secs_f64());
 
-    let encrypted_dataset_short = encrypted_dataset.get_mut(0..4).unwrap();
+    let encrypted_dataset_short = encrypted_dataset.get_mut(0..8).unwrap();
 
+    // Inference
     let all_probabilities = encrypted_dataset_short
         .par_iter_mut()
         .enumerate()
         .map(|(cnt, sample)| {
             let start = Instant::now();
+            println!("Started inference #{:?}.", cnt);
 
             let mut prediction = server_key.create_trivial_radix(bias_int, nb_blocks.into());
             for (s, &weight) in sample.iter_mut().zip(weights_int.iter()) {
@@ -92,10 +97,8 @@ fn main() {
     // ------- Client side ------- //
     let mut total = 0;
     for (num, (target, probability)) in targets.iter().zip(all_probabilities.iter()).enumerate() {
-        // let ptxt_probability = client_key.decrypt(probability);
         let ptxt_probability: u64 = client_key.decrypt(probability);
 
-        println!("{:?}", ptxt_probability);
         let class = (ptxt_probability > quantize(0.5, precision, bit_width)) as usize;
         println!("[{}] predicted {:?}, target {:?}", num, class, target);
         if class == *target {

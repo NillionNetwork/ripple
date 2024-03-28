@@ -5,7 +5,12 @@ use rayon::prelude::*;
 // use serde::{Deserialize, Serialize};
 use tfhe::{
     integer::{
-        gen_keys_radix, wopbs::*, IntegerCiphertext, IntegerRadixCiphertext, RadixCiphertext,
+        // ciphertext::BaseRadixCiphertext,
+        gen_keys_radix,
+        wopbs::*,
+        IntegerCiphertext,
+        IntegerRadixCiphertext,
+        RadixCiphertext,
     },
     shortint::parameters::{
         parameters_wopbs_message_carry::WOPBS_PARAM_MESSAGE_2_CARRY_2_KS_PBS,
@@ -19,7 +24,7 @@ fn eval_exp(x: u64, exp_map: &Vec<u64>) -> u64 {
 
 fn main() {
     // ------- Client side ------- //
-    let bit_width = 32u8;
+    let bit_width = 16u8;
     let precision = bit_width >> 2;
     assert!(precision <= bit_width / 2);
 
@@ -75,12 +80,27 @@ fn main() {
 
     // ------- Server side ------- //
 
-    let encrypted_dataset_short = encrypted_dataset.get_mut(0..1).unwrap();
+    // let lut_gen_start = Instant::now();
+    // println!("Generating LUT.");
+    // let dummy_blocks =
+    //     &encrypted_dataset[0][0].clone().into_blocks()[(nb_blocks as usize)..((nb_blocks << 1) as usize)];
+    // let dummy = RadixCiphertext::from_blocks(dummy_blocks.to_vec());
+    // let exp_lut_lsb =
+    //     wopbs_key.generate_lut_radix(&dummy, |x: u64| eval_exp(x, &lut_lsb));
+    // let exp_lut_msb =
+    //     wopbs_key.generate_lut_radix(&dummy, |x: u64| eval_exp(x, &lut_msb));
+    // println!(
+    //     "LUT generation done in {:?} sec.",
+    //     lut_gen_start.elapsed().as_secs_f64()
+    // );
+
+    let encrypted_dataset_short = encrypted_dataset.get_mut(0..8).unwrap();
     let all_probabilities = encrypted_dataset_short
-        .iter_mut()
+        .par_iter_mut()
         .enumerate()
         .map(|(cnt, sample)| {
             let start = Instant::now();
+            println!("Started inference #{:?}.", cnt);
 
             let mut prediction = server_key.create_trivial_radix(bias_int, (nb_blocks << 1).into());
             for (s, &weight) in sample.iter_mut().zip(weights_int.iter()) {
@@ -88,13 +108,13 @@ fn main() {
                 prediction = server_key.unchecked_add(&ct_prod, &prediction);
             }
             // Truncate
-            let prediction_blocks = &prediction.clone().into_blocks()
-                [(nb_blocks as usize)..((nb_blocks << 1) as usize)];
+            let prediction_blocks =
+                &prediction.into_blocks()[(nb_blocks as usize)..((nb_blocks << 1) as usize)];
             let prediction_msb = RadixCiphertext::from_blocks(prediction_blocks.to_vec());
-            // For some reason, the truncation is off by 1...
             let prediction_msb = server_key.unchecked_scalar_add(&prediction_msb, 1);
             // Keyswitch and Bootstrap
             let lut_gen_start = Instant::now();
+            println!("Generating LUT.");
             let exp_lut_lsb =
                 wopbs_key.generate_lut_radix(&prediction_msb, |x: u64| eval_exp(x, &lut_lsb));
             let exp_lut_msb =
@@ -104,18 +124,14 @@ fn main() {
                 lut_gen_start.elapsed().as_secs_f64()
             );
             prediction = wopbs_key.keyswitch_to_wopbs_params(&server_key, &prediction_msb);
-            let (activation_lsb, activation_msb) = rayon::join(
-                || {
-                    let activation_lsb = wopbs_key.wopbs(&prediction, &exp_lut_lsb);
-                    wopbs_key.keyswitch_to_pbs_params(&activation_lsb)
-                },
-                || {
-                    let activation_msb = wopbs_key.wopbs(&prediction, &exp_lut_msb);
-                    wopbs_key.keyswitch_to_pbs_params(&activation_msb)
-                },
-            );
-            let mut lsb_blocks = activation_lsb.clone().into_blocks();
-            let msb_blocks = activation_msb.clone().into_blocks();
+            let activation_lsb = wopbs_key.wopbs(&prediction, &exp_lut_lsb);
+            let mut lsb_blocks = wopbs_key
+                .keyswitch_to_pbs_params(&activation_lsb)
+                .into_blocks();
+            let activation_msb = wopbs_key.wopbs(&prediction, &exp_lut_msb);
+            let msb_blocks = wopbs_key
+                .keyswitch_to_pbs_params(&activation_msb)
+                .into_blocks();
             lsb_blocks.extend(msb_blocks);
             let probability = RadixCiphertext::from_blocks(lsb_blocks);
 
@@ -132,7 +148,6 @@ fn main() {
     let mut total = 0;
     for (num, (target, probability)) in targets.iter().zip(all_probabilities.iter()).enumerate() {
         let ptxt_probability: u64 = client_key.decrypt(probability);
-        println!("{:?}", ptxt_probability);
         let class = (ptxt_probability > quantize(0.5, precision, bit_width)) as usize;
         println!("[{}] predicted {:?}, target {:?}", num, class, target);
         if class == *target {

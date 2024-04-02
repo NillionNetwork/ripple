@@ -80,19 +80,22 @@ fn main() {
 
     // ------- Server side ------- //
 
-    // let lut_gen_start = Instant::now();
-    // println!("Generating LUT.");
-    // let dummy_blocks =
-    //     &encrypted_dataset[0][0].clone().into_blocks()[(nb_blocks as usize)..((nb_blocks << 1) as usize)];
-    // let dummy = RadixCiphertext::from_blocks(dummy_blocks.to_vec());
-    // let exp_lut_lsb =
-    //     wopbs_key.generate_lut_radix(&dummy, |x: u64| eval_exp(x, &lut_lsb));
-    // let exp_lut_msb =
-    //     wopbs_key.generate_lut_radix(&dummy, |x: u64| eval_exp(x, &lut_msb));
-    // println!(
-    //     "LUT generation done in {:?} sec.",
-    //     lut_gen_start.elapsed().as_secs_f64()
-    // );
+    let lut_gen_start = Instant::now();
+    println!("Generating LUT.");
+    let mut dummy = server_key.create_trivial_radix(2_u64, (nb_blocks << 1).into());
+    for _i in 0..8 {
+        let dummy_2 = server_key.smart_scalar_mul(&mut dummy, 2_u64);
+        dummy = server_key.unchecked_add(&dummy_2, &dummy);
+    }
+    let dummy_blocks = &dummy.into_blocks()[(nb_blocks as usize)..((nb_blocks << 1) as usize)];
+    let dummy_msb = RadixCiphertext::from_blocks(dummy_blocks.to_vec());
+    let dummy_msb = server_key.unchecked_scalar_add(&dummy_msb, 1);
+    let exp_lut_lsb = wopbs_key.generate_lut_radix(&dummy_msb, |x: u64| eval_exp(x, &lut_lsb));
+    let exp_lut_msb = wopbs_key.generate_lut_radix(&dummy_msb, |x: u64| eval_exp(x, &lut_msb));
+    println!(
+        "LUT generation done in {:?} sec.",
+        lut_gen_start.elapsed().as_secs_f64()
+    );
 
     let encrypted_dataset_short = encrypted_dataset.get_mut(0..8).unwrap();
     let all_probabilities = encrypted_dataset_short
@@ -113,16 +116,6 @@ fn main() {
             let prediction_msb = RadixCiphertext::from_blocks(prediction_blocks.to_vec());
             let prediction_msb = server_key.unchecked_scalar_add(&prediction_msb, 1);
             // Keyswitch and Bootstrap
-            let lut_gen_start = Instant::now();
-            println!("Generating LUT.");
-            let exp_lut_lsb =
-                wopbs_key.generate_lut_radix(&prediction_msb, |x: u64| eval_exp(x, &lut_lsb));
-            let exp_lut_msb =
-                wopbs_key.generate_lut_radix(&prediction_msb, |x: u64| eval_exp(x, &lut_msb));
-            println!(
-                "LUT generation done in {:?} sec.",
-                lut_gen_start.elapsed().as_secs_f64()
-            );
             prediction = wopbs_key.keyswitch_to_wopbs_params(&server_key, &prediction_msb);
             let activation_lsb = wopbs_key.wopbs(&prediction, &exp_lut_lsb);
             let mut lsb_blocks = wopbs_key

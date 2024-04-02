@@ -83,7 +83,7 @@ fn main() {
     let lut_gen_start = Instant::now();
     println!("Generating LUT.");
     let mut dummy = server_key.create_trivial_radix(2_u64, (nb_blocks << 1).into());
-    for _i in 0..8 {
+    for _ in 0..weights_int.len() {
         let dummy_2 = server_key.smart_scalar_mul(&mut dummy, 2_u64);
         dummy = server_key.unchecked_add(&dummy_2, &dummy);
     }

@@ -3,7 +3,7 @@ use std::fs::File;
 use dwt::{transform, wavelet::Haar, Operation};
 
 pub fn to_signed(x: u64, bit_width: u8) -> i64 {
-    if x > (1u64 << (bit_width - 1)) {
+    if x >= (1u64 << (bit_width - 1)) {
         (x as i128 - (1i128 << bit_width)) as i64
     } else {
         x as i64
@@ -30,11 +30,16 @@ pub fn mul(a: u64, b: u64, bit_width: u8) -> u64 {
     (a as u128 * b as u128).rem_euclid(1u128 << bit_width) as u64
 }
 
+pub fn trunc(x: u64, bit_width: u8, truncation: u8) -> u64 {
+    let y = to_signed(x, bit_width);
+    let z = y >> truncation;
+    from_signed(z, bit_width)
+}
+
 pub fn sigmoid(x: u64, input_precision: u8, output_precision: u8, bit_width: u8) -> u64 {
-    let x = to_signed(x, bit_width) as f64;
-    let shift = (1u128 << input_precision) as f64;
-    let sig = 1f64 / (1f64 + (-x / shift).exp());
-    (sig * ((1u128 << output_precision) as f64)) as u64
+    let x = unquantize(x, input_precision, bit_width);
+    let sig = 1f64 / (1f64 + (-x).exp());
+    quantize(sig, output_precision, bit_width)
 }
 
 pub fn load_weights_and_biases() -> (Vec<f64>, f64) {
@@ -111,21 +116,47 @@ pub fn means_and_stds(dataset: &[Vec<f64>], num_features: usize) -> (Vec<f64>, V
     (mins, maxs)
 }
 
-pub fn haar(precision: u8, bit_width: u8) -> (Vec<u64>, Vec<u64>) {
+pub fn haar(table_size: u8, precision: u8, bit_width: u8) -> (Vec<u64>, Vec<u64>) {
     let max = 1 << bit_width;
     let mut data = Vec::new();
     for x in 0..max {
-        data.push(unquantize(x, precision, bit_width).exp());
+        let x = unquantize(x, precision, bit_width);
+        let sig = 1f64 / (1f64 + (-x).exp());
+        data.push(sig);
     }
-    let level = 2u8;
-    transform(&mut data, Operation::Forward, &Haar::new(), level as usize);
-    let coef_len = 1 << (bit_width - level);
-    let haar = data
+    data.rotate_right(1 << (bit_width - 1));
+    transform(
+        &mut data,
+        Operation::Forward,
+        &Haar::new(),
+        (bit_width - table_size) as usize,
+    );
+    let coef_len = 1 << table_size;
+    let scalar = 2f64.powf(-((bit_width - table_size) as f64) / 2f64);
+    let mut haar: Vec<u64> = data
         .get(0..coef_len)
         .unwrap()
         .iter()
-        .map(|x| quantize(*x, precision, bit_width));
-    let lsb = haar.clone().map(|x| x & 0xFF).collect();
-    let msb = haar.map(|x| x >> (bit_width / 2) & 0xFF).collect();
+        .map(|x| quantize(scalar * x, precision, bit_width))
+        .collect();
+    haar.rotate_right(1 << (table_size - 1));
+    let mask = (1 << (bit_width / 2)) - 1;
+    let lsb = haar.iter().map(|x| x & mask).collect();
+    let msb = haar.iter().map(|x| x >> (bit_width / 2) & mask).collect();
+    (lsb, msb)
+}
+
+pub fn quantized_table(table_size: u8, precision: u8, bit_width: u8) -> (Vec<u64>, Vec<u64>) {
+    let mut data = Vec::new();
+    let max = 1 << (table_size);
+    for x in 0..max {
+        let x = x << (bit_width - table_size);
+        let xq = unquantize(x, precision, bit_width);
+        let sig = 1f64 / (1f64 + (-xq).exp());
+        data.push(quantize(sig, precision, bit_width));
+    }
+    let mask = (1 << (bit_width / 2)) - 1;
+    let lsb = data.clone().iter().map(|x| x & mask).collect();
+    let msb = data.iter().map(|x| x >> (bit_width / 2) & mask).collect();
     (lsb, msb)
 }

@@ -12,8 +12,8 @@ use tfhe::{
 
 fn main() {
     // ------- Client side ------- //
-    let bit_width = 16u8;
-    let precision = bit_width >> 2;
+    let bit_width = 24u8;
+    let precision = 8;
     assert!(precision <= bit_width / 2);
 
     // Number of blocks per ciphertext

@@ -24,11 +24,12 @@ fn eval_exp(x: u64, exp_map: &Vec<u64>) -> u64 {
 
 fn main() {
     // ------- Client side ------- //
-    let bit_width = 16u8;
-    let precision = bit_width >> 2;
+    let bit_width = 24u8;
+    let precision = 8;
+    let table_size = 12;
     assert!(precision <= bit_width / 2);
 
-    let (lut_lsb, lut_msb) = haar(precision, bit_width);
+    let (lut_lsb, lut_msb) = haar(table_size, precision, bit_width);
 
     // Number of blocks per ciphertext
     let nb_blocks = bit_width >> 2;

@@ -20,6 +20,10 @@ x86 = ["tfhe/x86_64-unix"]
 aarch64 = ["tfhe/aarch64-unix"]
 
 [[bin]]
+name = "dwt_lr"
+path = "src/dwt_lr.rs"
+
+[[bin]]
 name = "float_lr"
 path = "src/float_lr.rs"
 
@@ -34,3 +38,11 @@ path = "src/encrypted_lr.rs"
 [[bin]]
 name = "encrypted_lr_dwt"
 path = "src/encrypted_lr_dwt.rs"
+
+[[bin]]
+name = "sigmoid"
+path = "src/sigmoid.rs"
+
+[[bin]]
+name = "sigmoid_encrypted_dwt"
+path = "src/sigmoid_encrypted_dwt.rs"

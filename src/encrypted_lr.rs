@@ -1,5 +1,6 @@
 use std::time::Instant;
 
+use clap::{App, Arg};
 use fhe_lut::common::*;
 use rayon::prelude::*;
 use tfhe::{
@@ -11,6 +12,26 @@ use tfhe::{
 };
 
 fn main() {
+    let matches = App::new("Ripple")
+        .about("Vanilla Encrypted Logistic Regression")
+        .arg(
+            Arg::new("num-samples")
+                .long("num-samples")
+                .short('n')
+                .takes_value(true)
+                .value_name("INT")
+                .help("Number of samples")
+                .default_value("1")
+                .required(false),
+        )
+        .get_matches();
+
+    let num_samples = matches
+        .value_of("num-samples")
+        .unwrap_or("1")
+        .parse::<usize>()
+        .expect("Number of samples must be an integer");
+
     // ------- Client side ------- //
     let bit_width = 24u8;
     let precision = 8;
@@ -73,33 +94,54 @@ fn main() {
         "LUT generation done in {:?} sec.",
         lut_gen_start.elapsed().as_secs_f64()
     );
-    let encrypted_dataset_short = encrypted_dataset.get_mut(0..8).unwrap();
 
     // Inference
-    let all_probabilities = encrypted_dataset_short
-        .par_iter_mut()
-        .enumerate()
-        .map(|(cnt, sample)| {
-            let start = Instant::now();
-            println!("Started inference #{:?}.", cnt);
+    assert!(num_samples <= encrypted_dataset.len());
+    let all_probabilities = if num_samples > 1 {
+        encrypted_dataset
+            .par_iter_mut()
+            .enumerate()
+            .take(num_samples)
+            .map(|(cnt, sample)| {
+                let start = Instant::now();
+                println!("Started inference #{:?}.", cnt);
 
-            let mut prediction = server_key.create_trivial_radix(bias_int, nb_blocks.into());
-            for (s, &weight) in sample.iter_mut().zip(weights_int.iter()) {
-                let ct_prod = server_key.scalar_mul_parallelized(s, weight);
-                prediction = server_key.add_parallelized(&ct_prod, &prediction);
-            }
-            prediction = wopbs_key.keyswitch_to_wopbs_params(&server_key, &prediction);
-            let activation = wopbs_key.wopbs(&prediction, &sigmoid_lut);
-            let probability = wopbs_key.keyswitch_to_pbs_params(&activation);
+                let mut prediction = server_key.create_trivial_radix(bias_int, nb_blocks.into());
+                for (s, &weight) in sample.iter_mut().zip(weights_int.iter()) {
+                    let ct_prod = server_key.scalar_mul_parallelized(s, weight);
+                    prediction = server_key.add_parallelized(&ct_prod, &prediction);
+                }
+                prediction = wopbs_key.keyswitch_to_wopbs_params(&server_key, &prediction);
+                let activation = wopbs_key.wopbs(&prediction, &sigmoid_lut);
+                let probability = wopbs_key.keyswitch_to_pbs_params(&activation);
 
-            println!(
-                "Finished inference #{:?} in {:?} sec.",
-                cnt,
-                start.elapsed().as_secs_f64()
-            );
-            probability
-        })
-        .collect::<Vec<_>>();
+                println!(
+                    "Finished inference #{:?} in {:?} sec.",
+                    cnt,
+                    start.elapsed().as_secs_f64()
+                );
+                probability
+            })
+            .collect::<Vec<_>>()
+    } else {
+        let start = Instant::now();
+        println!("Started inference.");
+
+        let mut prediction = server_key.create_trivial_radix(bias_int, nb_blocks.into());
+        for (s, &weight) in encrypted_dataset[0].iter_mut().zip(weights_int.iter()) {
+            let ct_prod = server_key.scalar_mul_parallelized(s, weight);
+            prediction = server_key.add_parallelized(&ct_prod, &prediction);
+        }
+        prediction = wopbs_key.keyswitch_to_wopbs_params(&server_key, &prediction);
+        let activation = wopbs_key.wopbs(&prediction, &sigmoid_lut);
+        let probability = wopbs_key.keyswitch_to_pbs_params(&activation);
+
+        println!(
+            "Finished inference in {:?} sec.",
+            start.elapsed().as_secs_f64()
+        );
+        vec![probability]
+    };
 
     // ------- Client side ------- //
     let mut total = 0;
@@ -112,6 +154,6 @@ fn main() {
             total += 1;
         }
     }
-    let accuracy = (total as f32 / encrypted_dataset_short.len() as f32) * 100.0;
+    let accuracy = (total as f32 / encrypted_dataset.len() as f32) * 100.0;
     println!("Accuracy {accuracy}%");
 }

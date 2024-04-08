@@ -154,6 +154,6 @@ fn main() {
             total += 1;
         }
     }
-    let accuracy = (total as f32 / encrypted_dataset.len() as f32) * 100.0;
+    let accuracy = (total as f32 / num_samples as f32) * 100.0;
     println!("Accuracy {accuracy}%");
 }

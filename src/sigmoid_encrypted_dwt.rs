@@ -106,7 +106,7 @@ fn main() {
 
     // ------- Client side ------- //
     for (prob, data) in all_probabilities.iter().zip(dataset.iter()) {
-        let res: u64 = client_key.decrypt(&prob);
+        let res: u64 = client_key.decrypt(prob);
         let exp_lsb = lut_lsb_plain[(data >> (bit_width - table_size)) as usize];
         let exp_msb = lut_msb_plain[(data >> (bit_width - table_size)) as usize];
         let exp = (exp_msb << (bit_width / 2)) + exp_lsb;

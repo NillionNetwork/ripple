@@ -3,7 +3,7 @@ use std::time::Instant;
 use fhe_lut::common::*;
 use rayon::prelude::*;
 use tfhe::{
-    integer::{gen_keys_radix, wopbs::*},
+    integer::{gen_keys_radix, wopbs::*, RadixCiphertext},
     shortint::parameters::{
         parameters_wopbs_message_carry::WOPBS_PARAM_MESSAGE_2_CARRY_2_KS_PBS,
         PARAM_MESSAGE_2_CARRY_2_KS_PBS,
@@ -18,11 +18,11 @@ fn main() {
 
     // Number of blocks per ciphertext
     let nb_blocks = bit_width / 2;
+    println!("Number of blocks: {:?}", nb_blocks);
 
     let start = Instant::now();
     // Generate radix keys
     let (client_key, server_key) = gen_keys_radix(PARAM_MESSAGE_2_CARRY_2_KS_PBS, nb_blocks.into());
-
     // Generate key for PBS (without padding)
     let wopbs_key = WopbsKey::new_wopbs_key(
         &client_key,
@@ -59,13 +59,20 @@ fn main() {
     // ------- Server side ------- //
 
     // Build LUT for Sigmoid -- Offline cost
-    let start = Instant::now();
+    let lut_gen_start = Instant::now();
     println!("Generating LUT.");
-    let sigmoid_lut = wopbs_key.generate_lut_radix(&encrypted_dataset[0][0], |x: u64| {
+    let mut dummy: RadixCiphertext = server_key.create_trivial_radix(2_u64, (nb_blocks).into());
+    for _ in 0..weights_int.len() {
+        let dummy_2 = server_key.scalar_mul_parallelized(&dummy, 2_u64);
+        dummy = server_key.add_parallelized(&dummy_2, &dummy);
+    }
+    let sigmoid_lut = wopbs_key.generate_lut_radix(&dummy, |x: u64| {
         sigmoid(x, 2 * precision, precision, bit_width)
     });
-    println!("Generated LUT in {:?} sec.", start.elapsed().as_secs_f64());
-
+    println!(
+        "LUT generation done in {:?} sec.",
+        lut_gen_start.elapsed().as_secs_f64()
+    );
     let encrypted_dataset_short = encrypted_dataset.get_mut(0..8).unwrap();
 
     // Inference
@@ -78,8 +85,8 @@ fn main() {
 
             let mut prediction = server_key.create_trivial_radix(bias_int, nb_blocks.into());
             for (s, &weight) in sample.iter_mut().zip(weights_int.iter()) {
-                let ct_prod = server_key.smart_scalar_mul(s, weight);
-                prediction = server_key.unchecked_add(&ct_prod, &prediction);
+                let ct_prod = server_key.scalar_mul_parallelized(s, weight);
+                prediction = server_key.add_parallelized(&ct_prod, &prediction);
             }
             prediction = wopbs_key.keyswitch_to_wopbs_params(&server_key, &prediction);
             let activation = wopbs_key.wopbs(&prediction, &sigmoid_lut);

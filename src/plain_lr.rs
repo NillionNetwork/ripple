@@ -35,6 +35,7 @@ fn main() {
             println!("MAC result: {:?}", prediction);
         }
         let probability = sigmoid(prediction, 2 * precision, precision, bit_width);
+        println!("probability {probability}");
         let class = (probability > quantize(0.5, precision, bit_width)) as usize;
 
         // Client computation
@@ -43,6 +44,9 @@ fn main() {
             total += 1;
         }
         println!();
+        if total == 8 {
+            break;
+        }
     }
 
     let accuracy = (total as f64 / dataset.len() as f64) * 100.0;

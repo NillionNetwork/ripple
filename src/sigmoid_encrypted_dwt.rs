@@ -22,15 +22,15 @@ fn main() {
     let precision = 12;
     let table_size = 8;
 
-    let (lut_lsb_plain, lut_msb_plain) = haar(table_size, precision, bit_width);
+    let (lut_lsb_plain, lut_msb_plain) = haar(table_size, precision, precision, bit_width);
 
     // Number of blocks per ciphertext
-    let nb_blocks = bit_width >> 2;
-    println!("Number of blocks: {:?}", nb_blocks);
+    let pbs_blocks = bit_width >> 2;
+    println!("Number of blocks: {:?}", pbs_blocks);
 
     let start = Instant::now();
     // Generate radix keys
-    let (client_key, server_key) = gen_keys_radix(PARAM_MESSAGE_2_CARRY_2_KS_PBS, nb_blocks.into());
+    let (client_key, server_key) = gen_keys_radix(PARAM_MESSAGE_2_CARRY_2_KS_PBS, pbs_blocks.into());
 
     // Generate key for PBS (without padding)
     let wopbs_key = WopbsKey::new_wopbs_key(
@@ -45,16 +45,22 @@ fn main() {
 
     let dataset: Vec<u64> = vec![0, 72, 1050, 1790, 10234, 60122, 65001, 65535];
     // Expected [2079, 2079, 2333, 2458, 3776,  847, 1888, 2015]
-    // Recieved [2143, 2143, 2396, 2519, 3794,  890, 1951, 2079]
+    // Received [2143, 2143, 2396, 2519, 3794,  890, 1951, 2079]
+
+    // let mut dataset = Vec::new();
+    // let max = 1 << 10;
+    // for i in 0..max {
+    //     dataset.push(i * (1 << 6));
+    // }
 
     let start = Instant::now();
     let mut encrypted_dataset: Vec<_> = dataset
         .par_iter() // Use par_iter() for parallel iteration
         .map(|&sample| {
             let mut lsb = client_key
-                .encrypt(sample & (1 << ((nb_blocks << 1) - 1)))
+                .encrypt(sample & (1 << ((pbs_blocks << 1) - 1)))
                 .into_blocks(); // Get LSBs
-            let msb = client_key.encrypt(sample >> (nb_blocks << 1)).into_blocks(); // Get MSBs
+            let msb = client_key.encrypt(sample >> (pbs_blocks << 1)).into_blocks(); // Get MSBs
             lsb.extend(msb);
             RadixCiphertext::from_blocks(lsb)
         })
@@ -75,9 +81,9 @@ fn main() {
             // Truncate
             let mut prediction = sample.clone();
             let prediction_blocks =
-                &prediction.into_blocks()[(nb_blocks as usize)..((nb_blocks << 1) as usize)];
+                &prediction.into_blocks()[(pbs_blocks as usize)..((pbs_blocks << 1) as usize)];
             let prediction_msb = RadixCiphertext::from_blocks(prediction_blocks.to_vec());
-            let prediction_msb = server_key.unchecked_scalar_add(&prediction_msb, 1);
+            // let prediction_msb = server_key.unchecked_scalar_add(&prediction_msb, 1);
             // Keyswitch and Bootstrap
             prediction = wopbs_key.keyswitch_to_wopbs_params(&server_key, &prediction_msb);
             let lut_lsb =

@@ -5,18 +5,18 @@ fn main() {
     let precision = 12;
     let table_size = 8;
 
-    println!("Starting Haar");
-    let (lut_lsb, lut_msb) = quantized_table(table_size, precision, bit_width);
-    let (lut_haar_lsb, lut_haar_msb) = haar(table_size, precision, bit_width);
-    println!("Haar");
+    println!("Generating Lookup Tables");
+    let (lut_lsb, lut_msb) = quantized_table(table_size, precision, precision, bit_width);
+    let (lut_haar_lsb, lut_haar_msb) = haar(table_size, precision, precision, bit_width);
 
     let mut diff_quant = Vec::new();
     let mut diff_haar = Vec::new();
     // let dataset: Vec<u64> = vec![0, 72, 1050, 1790, 10234, 60122, 65001, 65535];
     let max = (1 << bit_width) - 1;
+    println!("Evaluating Sigmoid");
     for x in 0..max {
         let s0 = sigmoid(x, precision, precision, bit_width);
-        let s1 = sigmoid(
+        let _s1 = sigmoid(
             trunc(x, bit_width, bit_width - table_size),
             precision - (bit_width - table_size),
             precision,
@@ -32,16 +32,16 @@ fn main() {
         let s3 = s3a + (s3b << (bit_width / 2));
         let diff = s0 as i64 - s3 as i64;
         diff_haar.push(diff * diff);
-        println!("{x} {s0} {s1} {s2} {s3}");
+        // println!("{x} {s0} {_s1} {s2} {s3}");
     }
     println!(
-        "quantized mse {:?} ulp {:?}",
-        (diff_quant.iter().sum::<i64>() as f64).sqrt(),
+        "=== Quantized ===\nMean Squared Error {:?} \nMaximum Absolute Error {:?}",
+        (diff_quant.iter().sum::<i64>() as f64) / diff_quant.len() as f64,
         (*diff_quant.iter().max().unwrap() as f64).sqrt()
     );
     println!(
-        "haar mse {:?} ulp {:?}",
-        (diff_haar.iter().sum::<i64>() as f64).sqrt(),
+        "=== Haar DWT ====\nMean Squared Error {:?} \nMaximum Absolute Error {:?}",
+        (diff_haar.iter().sum::<i64>() as f64) / diff_haar.len() as f64,
         (*diff_haar.iter().max().unwrap() as f64).sqrt()
     );
 }

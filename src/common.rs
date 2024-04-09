@@ -116,11 +116,11 @@ pub fn means_and_stds(dataset: &[Vec<f64>], num_features: usize) -> (Vec<f64>, V
     (mins, maxs)
 }
 
-pub fn haar(table_size: u8, precision: u8, bit_width: u8) -> (Vec<u64>, Vec<u64>) {
+pub fn haar(table_size: u8, input_precision: u8, output_precision: u8, bit_width: u8) -> (Vec<u64>, Vec<u64>) {
     let max = 1 << bit_width;
     let mut data = Vec::new();
     for x in 0..max {
-        let x = unquantize(x, precision, bit_width);
+        let x = unquantize(x, input_precision, bit_width);
         let sig = 1f64 / (1f64 + (-x).exp());
         data.push(sig);
     }
@@ -137,7 +137,7 @@ pub fn haar(table_size: u8, precision: u8, bit_width: u8) -> (Vec<u64>, Vec<u64>
         .get(0..coef_len)
         .unwrap()
         .iter()
-        .map(|x| quantize(scalar * x, precision, bit_width))
+        .map(|x| quantize(scalar * x, output_precision, bit_width))
         .collect();
     haar.rotate_right(1 << (table_size - 1));
     let mask = (1 << (bit_width / 2)) - 1;
@@ -176,14 +176,14 @@ pub fn db2() -> (Vec<Vec<u64>>, Vec<u64>) {
     (lut_lsb_vecs, lut_msb_vec)
 }
 
-pub fn quantized_table(table_size: u8, precision: u8, bit_width: u8) -> (Vec<u64>, Vec<u64>) {
+pub fn quantized_table(table_size: u8, input_precision: u8, output_precision: u8, bit_width: u8) -> (Vec<u64>, Vec<u64>) {
     let mut data = Vec::new();
     let max = 1 << (table_size);
     for x in 0..max {
         let x = x << (bit_width - table_size);
-        let xq = unquantize(x, precision, bit_width);
+        let xq = unquantize(x, input_precision, bit_width);
         let sig = 1f64 / (1f64 + (-xq).exp());
-        data.push(quantize(sig, precision, bit_width));
+        data.push(quantize(sig, output_precision, bit_width));
     }
     let mask = (1 << (bit_width / 2)) - 1;
     let lsb = data.clone().iter().map(|x| x & mask).collect();

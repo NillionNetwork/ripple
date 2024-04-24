@@ -1,4 +1,4 @@
-use std::fs::File;
+use std::{collections::HashMap, fs::File, io::BufReader};
 
 use dwt::{transform, wavelet::Haar, Operation};
 
@@ -144,6 +144,36 @@ pub fn haar(table_size: u8, precision: u8, bit_width: u8) -> (Vec<u64>, Vec<u64>
     let lsb = haar.iter().map(|x| x & mask).collect();
     let msb = haar.iter().map(|x| x >> (bit_width / 2) & mask).collect();
     (lsb, msb)
+}
+
+pub fn db2() -> (Vec<Vec<u64>>, Vec<u64>) {
+    // Read DB2 LUTs
+    let reader = BufReader::new(File::open("../data/lut_lsb_h1.json").unwrap());
+    let lut_lsb_h1: HashMap<u64, u64> = serde_json::from_reader(reader).unwrap();
+    let reader = BufReader::new(File::open("../data/lut_lsb_h2.json").unwrap());
+    let lut_lsb_h2: HashMap<u64, u64> = serde_json::from_reader(reader).unwrap();
+    let reader = BufReader::new(File::open("../data/lut_lsb_h3.json").unwrap());
+    let lut_lsb_h3: HashMap<u64, u64> = serde_json::from_reader(reader).unwrap();
+    let reader = BufReader::new(File::open("../data/lut_msb_h4.json").unwrap());
+    let lut_msb_h4: HashMap<u64, u64> = serde_json::from_reader(reader).unwrap();
+
+    // Convert LSB LUTs to 2-D vector
+    let lut_lsb_len = lut_lsb_h1.keys().max().unwrap_or(&0);
+    let mut lut_lsb_vecs: Vec<Vec<u64>> = vec![vec![0; (*lut_lsb_len + 1) as usize]; 3];
+    for i in 0..=*lut_lsb_len {
+        lut_lsb_vecs[0][i as usize] = lut_lsb_h1.get(&i).cloned().unwrap_or(0);
+        lut_lsb_vecs[1][i as usize] = lut_lsb_h2.get(&i).cloned().unwrap_or(0);
+        lut_lsb_vecs[2][i as usize] = lut_lsb_h3.get(&i).cloned().unwrap_or(0);
+    }
+
+    // Convert MSB LUT to 1-D vector
+    let lut_msb_len = lut_msb_h4.keys().max().unwrap_or(&0);
+    let mut lut_msb_vec: Vec<u64> = vec![0; (*lut_msb_len + 1) as usize];
+    for (key, value) in lut_msb_h4 {
+        lut_msb_vec[key as usize] = value;
+    }
+
+    (lut_lsb_vecs, lut_msb_vec)
 }
 
 pub fn quantized_table(table_size: u8, precision: u8, bit_width: u8) -> (Vec<u64>, Vec<u64>) {

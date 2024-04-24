@@ -116,7 +116,12 @@ pub fn means_and_stds(dataset: &[Vec<f64>], num_features: usize) -> (Vec<f64>, V
     (mins, maxs)
 }
 
-pub fn haar(table_size: u8, input_precision: u8, output_precision: u8, bit_width: u8) -> (Vec<u64>, Vec<u64>) {
+pub fn haar(
+    table_size: u8,
+    input_precision: u8,
+    output_precision: u8,
+    bit_width: u8,
+) -> (Vec<u64>, Vec<u64>) {
     let max = 1 << bit_width;
     let mut data = Vec::new();
     for x in 0..max {
@@ -148,13 +153,13 @@ pub fn haar(table_size: u8, input_precision: u8, output_precision: u8, bit_width
 
 pub fn db2() -> (Vec<Vec<u64>>, Vec<u64>) {
     // Read DB2 LUTs
-    let reader = BufReader::new(File::open("../data/lut_lsb_h1.json").unwrap());
+    let reader = BufReader::new(File::open("./data/lut_lsb_h1.json").unwrap());
     let lut_lsb_h1: HashMap<u64, u64> = serde_json::from_reader(reader).unwrap();
-    let reader = BufReader::new(File::open("../data/lut_lsb_h2.json").unwrap());
+    let reader = BufReader::new(File::open("./data/lut_lsb_h2.json").unwrap());
     let lut_lsb_h2: HashMap<u64, u64> = serde_json::from_reader(reader).unwrap();
-    let reader = BufReader::new(File::open("../data/lut_lsb_h3.json").unwrap());
+    let reader = BufReader::new(File::open("./data/lut_lsb_h3.json").unwrap());
     let lut_lsb_h3: HashMap<u64, u64> = serde_json::from_reader(reader).unwrap();
-    let reader = BufReader::new(File::open("../data/lut_msb_h4.json").unwrap());
+    let reader = BufReader::new(File::open("./data/lut_msb_h4.json").unwrap());
     let lut_msb_h4: HashMap<u64, u64> = serde_json::from_reader(reader).unwrap();
 
     // Convert LSB LUTs to 2-D vector
@@ -176,7 +181,12 @@ pub fn db2() -> (Vec<Vec<u64>>, Vec<u64>) {
     (lut_lsb_vecs, lut_msb_vec)
 }
 
-pub fn quantized_table(table_size: u8, input_precision: u8, output_precision: u8, bit_width: u8) -> (Vec<u64>, Vec<u64>) {
+pub fn quantized_table(
+    table_size: u8,
+    input_precision: u8,
+    output_precision: u8,
+    bit_width: u8,
+) -> (Vec<u64>, Vec<u64>) {
     let mut data = Vec::new();
     let max = 1 << (table_size);
     for x in 0..max {

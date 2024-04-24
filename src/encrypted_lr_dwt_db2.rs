@@ -19,28 +19,16 @@ use tfhe::{
     },
 };
 
-// fn eval_lut(x: u64, lut_entries: &Vec<u64>) -> u64 {
-//     lut_entries[x as usize]
-// }
-
-// fn eval_lut_sll_1(x: u64, lut_entries: &Vec<u64>) -> u64 {
-//   lut_entries[(x << 1) as usize]
-// }
-
-// fn eval_lut_sll_2(x: u64, lut_entries: &Vec<u64>) -> u64 {
-//   lut_entries[(x << 2) as usize]
-// }
-
-fn eval_lut_dummy(x: u64) -> u64 {
-    x * 2
+fn eval_lut(x: u64, lut_entries: &Vec<u64>) -> u64 {
+    lut_entries[x as usize]
 }
 
-fn eval_lut_sll_1_dummy(x: u64) -> u64 {
-    (x << 1) * 2
+fn eval_lut_sll_1(x: u64, lut_entries: &Vec<u64>, ptxt_space: u64) -> u64 {
+    lut_entries[((x << 1) % ptxt_space) as usize]
 }
 
-fn eval_lut_sll_2_dummy(x: u64) -> u64 {
-    (x << 2) * 2
+fn eval_lut_sll_2(x: u64, lut_entries: &Vec<u64>, ptxt_space: u64) -> u64 {
+    lut_entries[((x << 2) % ptxt_space) as usize]
 }
 
 fn main() {
@@ -66,11 +54,12 @@ fn main() {
 
     // ------- Client side ------- //
     let bit_width = 24u8;
+    let lut_bit_width = 18u8;
     let precision = 8;
     let j = 8; // wave depth
     assert!(precision <= bit_width / 2);
 
-    // let (lut_lsbs, lut_msb) = db2();
+    let (lut_lsbs, lut_msb) = db2();
 
     // Number of blocks for full precision
     let nb_blocks = bit_width >> 1;
@@ -137,21 +126,25 @@ fn main() {
         let dummy_2 = server_key.scalar_mul_parallelized(&dummy, 2_u64);
         dummy = server_key.add_parallelized(&dummy_2, &dummy);
     }
-    let dummy_blocks = &dummy.into_blocks();
+    let dummy_blocks = &dummy.into_blocks()[3..(nb_blocks as usize)];
     let dummy_blocks_lsb = &dummy_blocks[0..((j >> 1) as usize)];
-    let dummy_blocks_msb = &dummy_blocks[((j >> 1) as usize)..(nb_blocks as usize)];
+    let dummy_blocks_msb = &dummy_blocks[((j >> 1) as usize)..((nb_blocks as usize) - 3)];
     let dummy_lsb = RadixCiphertext::from_blocks(dummy_blocks_lsb.to_vec());
     let dummy_msb = RadixCiphertext::from_blocks(dummy_blocks_msb.to_vec());
     let dummy_msb = server_key.scalar_add_parallelized(&dummy_msb, 1);
     let dummy_lsb = server_key.scalar_add_parallelized(&dummy_lsb, 1);
     let mut lsb_luts = Vec::new();
     let mut msb_luts = Vec::new();
-    for _ in 0..3 {
-        lsb_luts.push(wopbs_key.generate_lut_radix(&dummy_lsb, |x: u64| eval_lut_dummy(x)));
+    for lut_lsb in lut_lsbs.iter() {
+        lsb_luts.push(wopbs_key.generate_lut_radix(&dummy_lsb, |x: u64| eval_lut(x, lut_lsb)));
     }
-    msb_luts.push(wopbs_key.generate_lut_radix(&dummy_msb, |x: u64| eval_lut_dummy(x)));
-    msb_luts.push(wopbs_key.generate_lut_radix(&dummy_msb, |x: u64| eval_lut_sll_1_dummy(x)));
-    msb_luts.push(wopbs_key.generate_lut_radix(&dummy_msb, |x: u64| eval_lut_sll_2_dummy(x)));
+    msb_luts.push(wopbs_key.generate_lut_radix(&dummy_msb, |x: u64| eval_lut(x, &lut_msb)));
+    msb_luts.push(wopbs_key.generate_lut_radix(&dummy_msb, |x: u64| {
+        eval_lut_sll_1(x, &lut_msb, 2u64.pow((lut_bit_width - j) as u32))
+    }));
+    msb_luts.push(wopbs_key.generate_lut_radix(&dummy_msb, |x: u64| {
+        eval_lut_sll_2(x, &lut_msb, 2u64.pow((lut_bit_width - j) as u32))
+    }));
     println!(
         "LUT generation done in {:?} sec.",
         lut_gen_start.elapsed().as_secs_f64()
@@ -173,11 +166,12 @@ fn main() {
                     let ct_prod = server_key.scalar_mul_parallelized(s, weight);
                     prediction = server_key.add_parallelized(&ct_prod, &prediction);
                 }
+                // Truncate 6 LSBs to reduce to 18 bits
+                let prediction_blocks = &prediction.into_blocks()[3..(nb_blocks as usize)];
                 // Split into J LSBs and n-J MSBs
-                let prediction_blocks = &prediction.into_blocks();
                 let prediction_blocks_lsb = &prediction_blocks[0..((j >> 1) as usize)];
                 let prediction_blocks_msb =
-                    &prediction_blocks[((j >> 1) as usize)..(nb_blocks as usize)];
+                    &prediction_blocks[((j >> 1) as usize)..((nb_blocks as usize) - 3)];
                 let prediction_lsb = RadixCiphertext::from_blocks(prediction_blocks_lsb.to_vec());
                 let prediction_msb = RadixCiphertext::from_blocks(prediction_blocks_msb.to_vec());
                 let prediction_msb = server_key.scalar_add_parallelized(&prediction_msb, 1);

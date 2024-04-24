@@ -30,7 +30,8 @@ fn main() {
 
     let start = Instant::now();
     // Generate radix keys
-    let (client_key, server_key) = gen_keys_radix(PARAM_MESSAGE_2_CARRY_2_KS_PBS, pbs_blocks.into());
+    let (client_key, server_key) =
+        gen_keys_radix(PARAM_MESSAGE_2_CARRY_2_KS_PBS, pbs_blocks.into());
 
     // Generate key for PBS (without padding)
     let wopbs_key = WopbsKey::new_wopbs_key(
@@ -60,7 +61,9 @@ fn main() {
             let mut lsb = client_key
                 .encrypt(sample & (1 << ((pbs_blocks << 1) - 1)))
                 .into_blocks(); // Get LSBs
-            let msb = client_key.encrypt(sample >> (pbs_blocks << 1)).into_blocks(); // Get MSBs
+            let msb = client_key
+                .encrypt(sample >> (pbs_blocks << 1))
+                .into_blocks(); // Get MSBs
             lsb.extend(msb);
             RadixCiphertext::from_blocks(lsb)
         })

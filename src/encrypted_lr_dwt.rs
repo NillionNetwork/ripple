@@ -56,7 +56,10 @@ fn main() {
 
     // Number of blocks per ciphertext
     let nb_blocks = bit_width >> 2;
-    println!("Number of blocks for the radix decomposition: {:?}", nb_blocks);
+    println!(
+        "Number of blocks for the radix decomposition: {:?}",
+        nb_blocks
+    );
 
     let start = Instant::now();
     // Generate radix keys
@@ -184,10 +187,13 @@ fn main() {
     let mut total = 0;
     for (num, (target, probability)) in targets.iter().zip(all_probabilities.iter()).enumerate() {
         let ptxt_probability: u64 = client_key.decrypt(probability);
-        let pr = (ptxt_probability as f64) / ((1<<precision) as f64);
+        let pr = (ptxt_probability as f64) / ((1 << precision) as f64);
 
         let class = (ptxt_probability > quantize(0.5, precision, bit_width)) as usize;
-        println!("[{}] predicted {:?}, target {:?} (prediction probability {:?})", num, class, target, pr);
+        println!(
+            "[{}] predicted {:?}, target {:?} (prediction probability {:?})",
+            num, class, target, pr
+        );
         if class == *target {
             total += 1;
         }

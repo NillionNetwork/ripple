@@ -52,3 +52,7 @@ path = "src/sigmoid_encrypted_dwt.rs"
 [[bin]]
 name = "encrypted_lr_dwt_db2"
 path = "src/encrypted_lr_dwt_db2.rs"
+
+[[bin]]
+name = "correlation"
+path = "src/correlation.rs"

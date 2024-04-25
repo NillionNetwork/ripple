@@ -168,43 +168,49 @@ fn main() {
                 }
                 // Truncate 6 LSBs to reduce to 18 bits
                 let prediction_blocks = &prediction.into_blocks()[3..(nb_blocks as usize)];
-                // Split into J LSBs and n-J MSBs
-                let prediction_blocks_lsb = &prediction_blocks[0..((j >> 1) as usize)];
-                let prediction_blocks_msb =
-                    &prediction_blocks[((j >> 1) as usize)..((nb_blocks as usize) - 3)];
-                let prediction_lsb = RadixCiphertext::from_blocks(prediction_blocks_lsb.to_vec());
-                let prediction_msb = RadixCiphertext::from_blocks(prediction_blocks_msb.to_vec());
-                let prediction_msb = server_key.scalar_add_parallelized(&prediction_msb, 1);
-                let prediction_lsb = server_key.scalar_add_parallelized(&prediction_lsb, 1);
-                // Evaluate LUTs and multiply
-                let prediction_msb =
-                    wopbs_key.keyswitch_to_wopbs_params(&server_key, &prediction_msb);
-                let prediction_lsb =
-                    wopbs_key.keyswitch_to_wopbs_params(&server_key, &prediction_lsb);
-                let mut prods = Vec::new();
-                for i in 0..3 {
-                    let activation_lsb = wopbs_key.wopbs(&prediction_lsb, &lsb_luts[i]);
-                    let activation_msb = wopbs_key.wopbs(&prediction_msb, &msb_luts[i]);
-                    let mut activation_lsb_blocks = wopbs_key
-                        .keyswitch_to_pbs_params(&activation_lsb)
-                        .into_blocks();
-                    // Pad LSBs to n-J bits
-                    let padding: RadixCiphertext =
-                        server_key.create_trivial_radix(0, ((bit_width - 2 * j) >> 1).into());
-                    let padding_blocks = padding.into_blocks();
-                    activation_lsb_blocks.extend(padding_blocks);
-                    let activation_lsb = RadixCiphertext::from_blocks(activation_lsb_blocks);
-                    let activation_msb = wopbs_key.keyswitch_to_pbs_params(&activation_msb);
-                    // Multiply and pad to n bits
-                    let mut ct_prod_blocks = server_key
-                        .mul_parallelized(&activation_lsb, &activation_msb)
-                        .into_blocks();
-                    let padding: RadixCiphertext =
-                        server_key.create_trivial_radix(0, (j >> 1).into());
-                    let padding_blocks = padding.into_blocks();
-                    ct_prod_blocks.extend(padding_blocks);
-                    prods.push(RadixCiphertext::from_blocks(ct_prod_blocks.to_vec()));
-                }
+                let (prediction_msb, prediction_lsb) = rayon::join(
+                    || {
+                        let prediction_blocks_lsb = &prediction_blocks[0..((j >> 1) as usize)];
+                        let prediction_lsb =
+                            RadixCiphertext::from_blocks(prediction_blocks_lsb.to_vec());
+                        let prediction_lsb = server_key.scalar_add_parallelized(&prediction_lsb, 1);
+                        wopbs_key.keyswitch_to_wopbs_params(&server_key, &prediction_lsb)
+                    },
+                    || {
+                        let prediction_blocks_msb =
+                            &prediction_blocks[((j >> 1) as usize)..((nb_blocks as usize) - 3)];
+                        let prediction_msb =
+                            RadixCiphertext::from_blocks(prediction_blocks_msb.to_vec());
+                        let prediction_msb = server_key.scalar_add_parallelized(&prediction_msb, 1);
+                        wopbs_key.keyswitch_to_wopbs_params(&server_key, &prediction_msb)
+                    },
+                );
+                let prods: Vec<RadixCiphertext> = (0..3)
+                    .into_par_iter()
+                    .map(|i| {
+                        let activation_lsb = wopbs_key.wopbs(&prediction_lsb, &lsb_luts[i]);
+                        let activation_msb = wopbs_key.wopbs(&prediction_msb, &msb_luts[i]);
+                        let mut activation_lsb_blocks = wopbs_key
+                            .keyswitch_to_pbs_params(&activation_lsb)
+                            .into_blocks();
+                        // Pad LSBs to n-J bits
+                        let padding: RadixCiphertext =
+                            server_key.create_trivial_radix(0, ((bit_width - 2 * j) >> 1).into());
+                        let padding_blocks = padding.into_blocks();
+                        activation_lsb_blocks.extend(padding_blocks);
+                        let activation_lsb = RadixCiphertext::from_blocks(activation_lsb_blocks);
+                        let activation_msb = wopbs_key.keyswitch_to_pbs_params(&activation_msb);
+                        // Multiply and pad to n bits
+                        let mut ct_prod_blocks = server_key
+                            .mul_parallelized(&activation_lsb, &activation_msb)
+                            .into_blocks();
+                        let padding: RadixCiphertext =
+                            server_key.create_trivial_radix(0, (j >> 1).into());
+                        let padding_blocks = padding.into_blocks();
+                        ct_prod_blocks.extend(padding_blocks);
+                        RadixCiphertext::from_blocks(ct_prod_blocks.to_vec())
+                    })
+                    .collect();
                 // Sum products
                 let probability = server_key.add_parallelized(&prods[0], &prods[1]);
                 let probability = server_key.add_parallelized(&probability, &prods[2]);
@@ -226,39 +232,47 @@ fn main() {
             prediction = server_key.add_parallelized(&ct_prod, &prediction);
         }
         // Split into J LSBs and n-J MSBs
-        let prediction_blocks = &prediction.into_blocks();
-        let prediction_blocks_lsb = &prediction_blocks[0..((j >> 1) as usize)];
-        let prediction_blocks_msb = &prediction_blocks[((j >> 1) as usize)..(nb_blocks as usize)];
-        let prediction_lsb = RadixCiphertext::from_blocks(prediction_blocks_lsb.to_vec());
-        let prediction_msb = RadixCiphertext::from_blocks(prediction_blocks_msb.to_vec());
-        let prediction_msb = server_key.scalar_add_parallelized(&prediction_msb, 1);
-        let prediction_lsb = server_key.scalar_add_parallelized(&prediction_lsb, 1);
-        // Evaluate LUTs and multiply
-        let prediction_msb = wopbs_key.keyswitch_to_wopbs_params(&server_key, &prediction_msb);
-        let prediction_lsb = wopbs_key.keyswitch_to_wopbs_params(&server_key, &prediction_lsb);
-        let mut prods = Vec::new();
-        for i in 0..3 {
-            let activation_lsb = wopbs_key.wopbs(&prediction_lsb, &lsb_luts[i]);
-            let activation_msb = wopbs_key.wopbs(&prediction_msb, &msb_luts[i]);
-            let mut activation_lsb_blocks = wopbs_key
-                .keyswitch_to_pbs_params(&activation_lsb)
-                .into_blocks();
-            // Pad LSBs to n-J bits
-            let padding: RadixCiphertext =
-                server_key.create_trivial_radix(0, ((bit_width - 2 * j) >> 1).into());
-            let padding_blocks = padding.into_blocks();
-            activation_lsb_blocks.extend(padding_blocks);
-            let activation_lsb = RadixCiphertext::from_blocks(activation_lsb_blocks);
-            let activation_msb = wopbs_key.keyswitch_to_pbs_params(&activation_msb);
-            // Multiply and pad to n bits
-            let mut ct_prod_blocks = server_key
-                .mul_parallelized(&activation_lsb, &activation_msb)
-                .into_blocks();
-            let padding: RadixCiphertext = server_key.create_trivial_radix(0, (j >> 1).into());
-            let padding_blocks = padding.into_blocks();
-            ct_prod_blocks.extend(padding_blocks);
-            prods.push(RadixCiphertext::from_blocks(ct_prod_blocks.to_vec()));
-        }
+        let prediction_blocks = &prediction.into_blocks()[3..(nb_blocks as usize)];
+        let (prediction_msb, prediction_lsb) = rayon::join(
+            || {
+                let prediction_blocks_lsb = &prediction_blocks[0..((j >> 1) as usize)];
+                let prediction_lsb = RadixCiphertext::from_blocks(prediction_blocks_lsb.to_vec());
+                let prediction_lsb = server_key.scalar_add_parallelized(&prediction_lsb, 1);
+                wopbs_key.keyswitch_to_wopbs_params(&server_key, &prediction_lsb)
+            },
+            || {
+                let prediction_blocks_msb =
+                    &prediction_blocks[((j >> 1) as usize)..((nb_blocks as usize) - 3)];
+                let prediction_msb = RadixCiphertext::from_blocks(prediction_blocks_msb.to_vec());
+                let prediction_msb = server_key.scalar_add_parallelized(&prediction_msb, 1);
+                wopbs_key.keyswitch_to_wopbs_params(&server_key, &prediction_msb)
+            },
+        );
+        let prods: Vec<RadixCiphertext> = (0..3)
+            .into_par_iter()
+            .map(|i| {
+                let activation_lsb = wopbs_key.wopbs(&prediction_lsb, &lsb_luts[i]);
+                let activation_msb = wopbs_key.wopbs(&prediction_msb, &msb_luts[i]);
+                let mut activation_lsb_blocks = wopbs_key
+                    .keyswitch_to_pbs_params(&activation_lsb)
+                    .into_blocks();
+                // Pad LSBs to n-J bits
+                let padding: RadixCiphertext =
+                    server_key.create_trivial_radix(0, ((bit_width - 2 * j) >> 1).into());
+                let padding_blocks = padding.into_blocks();
+                activation_lsb_blocks.extend(padding_blocks);
+                let activation_lsb = RadixCiphertext::from_blocks(activation_lsb_blocks);
+                let activation_msb = wopbs_key.keyswitch_to_pbs_params(&activation_msb);
+                // Multiply and pad to n bits
+                let mut ct_prod_blocks = server_key
+                    .mul_parallelized(&activation_lsb, &activation_msb)
+                    .into_blocks();
+                let padding: RadixCiphertext = server_key.create_trivial_radix(0, (j >> 1).into());
+                let padding_blocks = padding.into_blocks();
+                ct_prod_blocks.extend(padding_blocks);
+                RadixCiphertext::from_blocks(ct_prod_blocks.to_vec())
+            })
+            .collect();
         // Sum products
         let probability = server_key.add_parallelized(&prods[0], &prods[1]);
         let probability = server_key.add_parallelized(&probability, &prods[2]);

@@ -1,4 +1,4 @@
-use fhe_lut::common::*;
+use ripple::common::*;
 
 fn main() {
     let bit_width = 16;

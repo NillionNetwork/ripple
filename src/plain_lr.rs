@@ -1,6 +1,6 @@
 // use debug_print::debug_println;
-use fhe_lut::common::*;
 use rayon::prelude::*;
+use ripple::common::*;
 
 pub fn quantize_dataset(dataset: &Vec<Vec<f64>>, precision: u8, bit_width: u8) -> Vec<Vec<u64>> {
     dataset

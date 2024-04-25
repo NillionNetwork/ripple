@@ -1,3 +1,5 @@
+use ripple::common;
+
 fn pearson_correlation(x: &[u32], y: &[u32]) -> Result<f64, &'static str> {
     if x.len() != y.len() {
         return Err("The length of the two arrays must be equal");
@@ -20,8 +22,7 @@ fn pearson_correlation(x: &[u32], y: &[u32]) -> Result<f64, &'static str> {
 }
 
 fn main() {
-    let experience = (0..10).collect::<Vec<u32>>();
-    let salary = vec![42, 100, 110, 50, 48, 120, 80, 120, 180, 96];
+    let (experience, salary) = common::read_correlation("data/correlation.csv");
 
     let mut salary_sorted = salary.clone();
     salary_sorted.sort();

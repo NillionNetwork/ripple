@@ -1,4 +1,4 @@
-use fhe_lut::common::*;
+use ripple::common::*;
 
 fn main() {
     let (model, bias) = load_weights_and_biases();

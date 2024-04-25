@@ -1,8 +1,8 @@
 use std::time::Instant;
 
 use clap::{App, Arg};
-use fhe_lut::common::*;
 use rayon::prelude::*;
+use ripple::common::*;
 use tfhe::{
     integer::{gen_keys_radix, wopbs::*, RadixCiphertext},
     shortint::parameters::{

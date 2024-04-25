@@ -1,5 +1,5 @@
 [package]
-name = "fhe-lut"
+name = "ripple"
 version = "0.1.0"
 edition = "2021"
 keywords = ["cryptography", "homomorphic-encryption", "HE", "FHE"]
@@ -56,3 +56,7 @@ path = "src/encrypted_lr_dwt_db2.rs"
 [[bin]]
 name = "correlation"
 path = "src/correlation.rs"
+
+[[bin]]
+name = "encrypted_correlation"
+path = "src/encrypted_correlation.rs"

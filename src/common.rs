@@ -181,21 +181,19 @@ pub fn db2() -> (Vec<Vec<u64>>, Vec<u64>) {
     (lut_lsb_vecs, lut_msb_vec)
 }
 
-pub fn read_correlation(filename: &str) -> (Vec<u32>, Vec<u32>) {
-    let mut experience = Vec::new();
-    let mut salary = Vec::new();
+pub fn read_csv_two_columns(filename: &str) -> (Vec<u32>, Vec<u32>) {
+    let mut x = Vec::new();
+    let mut y = Vec::new();
 
-    let weights_csv = File::open(filename).unwrap();
-    let mut reader = csv::Reader::from_reader(weights_csv);
+    let csv = File::open(filename).unwrap();
+    let mut reader = csv::Reader::from_reader(csv);
 
     for line in reader.deserialize() {
         let res: Vec<u32> = line.expect("a CSV record");
-        // let exp = exp_str.trim().parse()?;
-        // let sal = sal_str.trim().parse()?;
-        experience.push(res[0]);
-        salary.push(res[1]);
+        x.push(res[0]);
+        y.push(res[1]);
     }
-    (experience, salary)
+    (x, y)
 }
 
 pub fn quantized_table(

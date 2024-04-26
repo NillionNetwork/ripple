@@ -60,3 +60,7 @@ path = "src/correlation.rs"
 [[bin]]
 name = "encrypted_correlation"
 path = "src/encrypted_correlation.rs"
+
+[[bin]]
+name = "euclidean"
+path = "src/euclidean.rs"

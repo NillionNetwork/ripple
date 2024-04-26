@@ -12,7 +12,7 @@ use tfhe::{
 };
 
 fn main() {
-    let (experience, salaries) = common::read_correlation("data/correlation.csv");
+    let (experience, salaries) = common::read_csv_two_columns("data/correlation.csv");
     assert_eq!(
         experience.len(),
         salaries.len(),

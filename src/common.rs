@@ -157,13 +157,16 @@ pub fn bior(table_size: u8, bit_width: u8) -> (Vec<u64>, Vec<u64>) {
     let bior_lut: HashMap<u64, u64> = serde_json::from_reader(reader).unwrap();
 
     // Convert to 1-D vector
-    let mut bior_lut_vec = bior_lut.into_iter().map(|(_, v)| v).collect::<Vec<_>>();
+    let mut bior_lut_vec = bior_lut.into_values().collect::<Vec<_>>();
 
     // Break into two LUTs
     bior_lut_vec.rotate_right(1 << (table_size - 1));
     let mask = (1 << (bit_width / 2)) - 1;
     let lsb = bior_lut_vec.iter().map(|x| x & mask).collect();
-    let msb = bior_lut_vec.iter().map(|x| x >> (bit_width / 2) & mask).collect();
+    let msb = bior_lut_vec
+        .iter()
+        .map(|x| x >> (bit_width / 2) & mask)
+        .collect();
     (lsb, msb)
 }
 
@@ -180,13 +183,13 @@ pub fn db2() -> (Vec<Vec<u64>>, Vec<u64>) {
 
     // Convert LSB LUTs to 2-D vector
     let lut_lsb_vecs = vec![
-        db2_lut_1.into_iter().map(|(_, v)| v).collect::<Vec<_>>(),
-        db2_lut_2.into_iter().map(|(_, v)| v).collect::<Vec<_>>(),
-        db2_lut_3.into_iter().map(|(_, v)| v).collect::<Vec<_>>(),
+        db2_lut_1.into_values().collect::<Vec<_>>(),
+        db2_lut_2.into_values().collect::<Vec<_>>(),
+        db2_lut_3.into_values().collect::<Vec<_>>(),
     ];
 
     // Convert MSB LUT to 1-D vector
-    let lut_msb_vec = db2_lut_4.into_iter().map(|(_, v)| v).collect::<Vec<_>>();
+    let lut_msb_vec = db2_lut_4.into_values().collect::<Vec<_>>();
 
     (lut_lsb_vecs, lut_msb_vec)
 }

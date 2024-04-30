@@ -74,8 +74,7 @@ fn main() {
 
     let start = Instant::now();
     // Generate radix keys
-    let (client_key, server_key) =
-        gen_keys_radix(PARAM_MESSAGE_2_CARRY_2_KS_PBS, nb_blocks.into());
+    let (client_key, server_key) = gen_keys_radix(PARAM_MESSAGE_2_CARRY_2_KS_PBS, nb_blocks.into());
 
     // Generate key for PBS (without padding)
     let wopbs_key = WopbsKey::new_wopbs_key(
@@ -183,7 +182,7 @@ fn main() {
                     .map(|i| {
                         let activation_lsb = wopbs_key.wopbs(&prediction_lsb, &lsb_luts[i]);
                         let activation_msb = wopbs_key.wopbs(&prediction_msb, &msb_luts[i]);
-                        let mut activation_lsb_blocks = wopbs_key
+                        let activation_lsb_blocks = wopbs_key
                             .keyswitch_to_pbs_params(&activation_lsb)
                             .into_blocks();
                         let activation_lsb = RadixCiphertext::from_blocks(activation_lsb_blocks);
@@ -241,7 +240,7 @@ fn main() {
             .map(|i| {
                 let activation_lsb = wopbs_key.wopbs(&prediction_lsb, &lsb_luts[i]);
                 let activation_msb = wopbs_key.wopbs(&prediction_msb, &msb_luts[i]);
-                let mut activation_lsb_blocks = wopbs_key
+                let activation_lsb_blocks = wopbs_key
                     .keyswitch_to_pbs_params(&activation_lsb)
                     .into_blocks();
                 let activation_lsb = RadixCiphertext::from_blocks(activation_lsb_blocks);

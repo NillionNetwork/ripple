@@ -181,19 +181,23 @@ pub fn db2() -> (Vec<Vec<u64>>, Vec<u64>) {
     (lut_lsb_vecs, lut_msb_vec)
 }
 
-pub fn read_csv_two_columns(filename: &str) -> (Vec<u32>, Vec<u32>) {
-    let mut x = Vec::new();
-    let mut y = Vec::new();
-
+pub fn read_csv(filename: &str) -> Vec<Vec<u32>> {
     let csv = File::open(filename).unwrap();
     let mut reader = csv::Reader::from_reader(csv);
 
+    let num_columns = reader.headers().unwrap().len();
+    let mut data = vec![vec![]; num_columns];
     for line in reader.deserialize() {
-        let res: Vec<u32> = line.expect("a CSV record");
-        x.push(res[0]);
-        y.push(res[1]);
+        let record: Vec<u32> = line.unwrap();
+        if record.len() != num_columns {
+            panic!("Number of columns in row does not match header");
+        }
+        for (i, &value) in record.iter().enumerate() {
+            data[i].push(value);
+        }
     }
-    (x, y)
+
+    data
 }
 
 pub fn quantized_table(

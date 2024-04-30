@@ -12,12 +12,9 @@ use tfhe::{
 };
 
 fn main() {
-    let (experience, salaries) = common::read_csv_two_columns("data/correlation.csv");
-    assert_eq!(
-        experience.len(),
-        salaries.len(),
-        "The length of the two arrays must be equal"
-    );
+    let data = common::read_csv("data/correlation.csv");
+    let experience = &data[0];
+    let salaries = &data[1];
     let dataset_size = salaries.len() as f64;
 
     let mut salary_sorted = salaries.clone();

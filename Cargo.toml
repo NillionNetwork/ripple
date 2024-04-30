@@ -21,25 +21,35 @@ tfhe = { version = "0.6", features = ["boolean", "shortint", "integer"] }
 x86 = ["tfhe/x86_64-unix"]
 aarch64 = ["tfhe/aarch64-unix"]
 
-[[bin]]
-name = "dwt_lr"
-path = "src/dwt_lr.rs"
+# Logistic Regression
 
 [[bin]]
-name = "float_lr"
-path = "src/float_lr.rs"
+name = "lr_ptxt"
+path = "src/lr_ptxt.rs"
 
 [[bin]]
-name = "plain_lr"
-path = "src/plain_lr.rs"
+name = "lr_ptxt_float"
+path = "src/lr_ptxt_float.rs"
 
 [[bin]]
-name = "encrypted_lr"
-path = "src/encrypted_lr.rs"
+name = "lr_lut"
+path = "src/lr_lut.rs"
 
 [[bin]]
-name = "encrypted_lr_dwt"
-path = "src/encrypted_lr_dwt.rs"
+name = "lr_haar_ptxt"
+path = "src/lr_haar_ptxt.rs"
+
+[[bin]]
+name = "lr_haar"
+path = "src/lr_haar.rs"
+
+[[bin]]
+name = "lr_db2"
+path = "src/lr_db2.rs"
+
+[[bin]]
+name = "lr_bior"
+path = "src/lr_bior.rs"
 
 [[bin]]
 name = "sigmoid"
@@ -49,17 +59,17 @@ path = "src/sigmoid.rs"
 name = "sigmoid_encrypted_dwt"
 path = "src/sigmoid_encrypted_dwt.rs"
 
-[[bin]]
-name = "encrypted_lr_dwt_db2"
-path = "src/encrypted_lr_dwt_db2.rs"
+# Correlation Coefficient
 
 [[bin]]
-name = "correlation"
-path = "src/correlation.rs"
+name = "correlation_ptxt"
+path = "src/correlation_ptxt.rs"
 
 [[bin]]
-name = "encrypted_correlation"
-path = "src/encrypted_correlation.rs"
+name = "correlation_haar"
+path = "src/correlation_haar.rs"
+
+# Euclidean Distance
 
 [[bin]]
 name = "euclidean"

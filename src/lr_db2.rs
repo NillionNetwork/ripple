@@ -23,17 +23,17 @@ fn eval_lut(x: u64, lut_entries: &Vec<u64>) -> u64 {
     lut_entries[x as usize]
 }
 
-fn eval_lut_minus_1(x: u64, lut_entries: &Vec<u64>, ptxt_space: u64) -> u64 {
-    lut_entries[((x - 1) % ptxt_space) as usize]
+fn eval_lut_add_1(x: u64, lut_entries: &Vec<u64>, ptxt_space: u64) -> u64 {
+    lut_entries[((x + 1) % ptxt_space) as usize]
 }
 
-fn eval_lut_minus_2(x: u64, lut_entries: &Vec<u64>, ptxt_space: u64) -> u64 {
-    lut_entries[((x - 2) % ptxt_space) as usize]
+fn eval_lut_add_2(x: u64, lut_entries: &Vec<u64>, ptxt_space: u64) -> u64 {
+    lut_entries[((x + 2) % ptxt_space) as usize]
 }
 
 fn main() {
     let matches = App::new("Ripple")
-        .about("Encrypted Logistic Regression with Biorthogonal DWT LUTs")
+        .about("Encrypted Logistic Regression with DB2 DWT LUTs")
         .arg(
             Arg::new("num-samples")
                 .long("num-samples")
@@ -54,12 +54,12 @@ fn main() {
 
     // ------- Client side ------- //
     let bit_width = 24u8;
-    let lut_bit_width = 8u8;
-    let precision = 12;
+    let lut_bit_width = 18u8;
+    let precision = 8;
     let j = 8; // wave depth
     assert!(precision <= bit_width / 2);
 
-    let (lut_lsb, lut_msb) = bior();
+    let (lut_lsbs, lut_msb) = db2();
 
     // Number of blocks for full precision
     let nb_blocks = bit_width >> 1;
@@ -94,20 +94,12 @@ fn main() {
 
     let start = Instant::now();
     let mut encrypted_dataset: Vec<Vec<_>> = dataset
-        .iter() // Use par_iter() for parallel iteration
+        .par_iter() // Use par_iter() for parallel iteration
         .map(|sample| {
             sample
                 .iter()
                 .map(|&s| {
                     let quantized = quantize(s, precision, bit_width);
-                    // let mut lsb = client_key
-                    //     .encrypt(quantized & (1 << ((nb_blocks << 1) - 1)))
-                    //     .into_blocks(); // Get LSBs
-                    // let msb = client_key
-                    //     .encrypt(quantized >> (nb_blocks << 1))
-                    //     .into_blocks(); // Get MSBs
-                    // lsb.extend(msb);
-                    // RadixCiphertext::from_blocks(lsb)
                     client_key.encrypt(quantized)
                 })
                 .collect()
@@ -141,10 +133,10 @@ fn main() {
     }
     msb_luts.push(wopbs_key.generate_lut_radix(&dummy_msb, |x: u64| eval_lut(x, &lut_msb)));
     msb_luts.push(wopbs_key.generate_lut_radix(&dummy_msb, |x: u64| {
-        eval_lut_minus_1(x, &lut_msb, 2u64.pow((lut_bit_width - j) as u32))
+        eval_lut_add_1(x, &lut_msb, 2u64.pow((lut_bit_width - j) as u32))
     }));
     msb_luts.push(wopbs_key.generate_lut_radix(&dummy_msb, |x: u64| {
-        eval_lut_minus_2(x, &lut_msb, 2u64.pow((lut_bit_width - j) as u32))
+        eval_lut_add_2(x, &lut_msb, 2u64.pow((lut_bit_width - j) as u32))
     }));
     println!(
         "LUT generation done in {:?} sec.",
@@ -194,11 +186,6 @@ fn main() {
                         let mut activation_lsb_blocks = wopbs_key
                             .keyswitch_to_pbs_params(&activation_lsb)
                             .into_blocks();
-                        // Pad LSBs to n-J bits
-                        let padding: RadixCiphertext =
-                            server_key.create_trivial_radix(0, ((bit_width - 2 * j) >> 1).into());
-                        let padding_blocks = padding.into_blocks();
-                        activation_lsb_blocks.extend(padding_blocks);
                         let activation_lsb = RadixCiphertext::from_blocks(activation_lsb_blocks);
                         let activation_msb = wopbs_key.keyswitch_to_pbs_params(&activation_msb);
                         // Multiply and pad to n bits
@@ -232,8 +219,6 @@ fn main() {
             let ct_prod = server_key.scalar_mul_parallelized(s, weight);
             prediction = server_key.add_parallelized(&ct_prod, &prediction);
         }
-        let sigmoid_debug: u64 = client_key.decrypt(&prediction);
-        println!("Raw sigmoid input: {:?}", sigmoid_debug);
         // Split into J LSBs and n-J MSBs
         let prediction_blocks = &prediction.into_blocks()[3..(nb_blocks as usize)];
         let (prediction_msb, prediction_lsb) = rayon::join(
@@ -259,11 +244,6 @@ fn main() {
                 let mut activation_lsb_blocks = wopbs_key
                     .keyswitch_to_pbs_params(&activation_lsb)
                     .into_blocks();
-                // Pad LSBs to n-J bits
-                // let padding: RadixCiphertext =
-                //     server_key.create_trivial_radix(0, ((bit_width - 2 * j) >> 1).into());
-                // let padding_blocks = padding.into_blocks();
-                // activation_lsb_blocks.extend(padding_blocks);
                 let activation_lsb = RadixCiphertext::from_blocks(activation_lsb_blocks);
                 let activation_msb = wopbs_key.keyswitch_to_pbs_params(&activation_msb);
                 // Multiply and pad to n bits
@@ -295,7 +275,6 @@ fn main() {
         if class == *target {
             total += 1;
         }
-        println!("[{}] raw sigmoid output {:?}", num, ptxt_probability);
     }
     let accuracy = (total as f32 / num_samples as f32) * 100.0;
     println!("Accuracy {accuracy}%");

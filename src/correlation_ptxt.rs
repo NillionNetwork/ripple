@@ -6,7 +6,7 @@ fn pearson_correlation(x: &[u32], y: &[u32]) -> f64 {
     let x_mean = x.iter().map(|&xi| xi as f64).sum::<f64>() / n;
     let y_mean = y.iter().map(|&yi| yi as f64).sum::<f64>() / n;
 
-    let sum_xy: f64 = x
+    let covariance: f64 = x
         .iter()
         .zip(y.iter())
         .map(|(&xi, &yi)| ((xi as f64) - x_mean) * ((yi as f64) - y_mean))
@@ -14,7 +14,7 @@ fn pearson_correlation(x: &[u32], y: &[u32]) -> f64 {
     let variance_x: f64 = x.iter().map(|&xi| ((xi as f64) - x_mean).powi(2)).sum();
     let variance_y: f64 = y.iter().map(|&yi| ((yi as f64) - y_mean).powi(2)).sum();
 
-    sum_xy / (variance_x.sqrt() * variance_y.sqrt())
+    covariance / (variance_x.sqrt() * variance_y.sqrt())
 }
 
 fn main() {

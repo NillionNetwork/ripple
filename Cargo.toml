@@ -66,11 +66,17 @@ name = "correlation_ptxt"
 path = "src/correlation_ptxt.rs"
 
 [[bin]]
-name = "correlation_haar"
-path = "src/correlation_haar.rs"
+name = "correlation_lut"
+path = "src/correlation_lut.rs"
 
 # Euclidean Distance
 
 [[bin]]
 name = "euclidean"
 path = "src/euclidean.rs"
+
+# Primitive Timings
+
+[[bin]]
+name = "primitive_ops"
+path = "src/primitive_ops.rs"

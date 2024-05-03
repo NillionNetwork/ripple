@@ -22,7 +22,10 @@ fn main() {
     let precision = 12;
     let table_size = 8;
 
-    let (lut_lsb_plain, lut_msb_plain) = haar(table_size, precision, precision, bit_width);
+    fn my_sigmoid(value: f64) -> f64 {
+        1f64 / (1f64 + (-value).exp())
+    }
+    let (lut_lsb_plain, lut_msb_plain) = haar(precision, precision, bit_width, &my_sigmoid);
 
     // Number of blocks per ciphertext
     let pbs_blocks = bit_width >> 2;

@@ -17,10 +17,13 @@ pub fn quantize_dataset(dataset: &Vec<Vec<f64>>, precision: u8, bit_width: u8) -
 fn main() {
     let bit_width = 24u8;
     let precision = 8;
-    let table_size = 12;
+    let table_size = bit_width / 2;
 
     println!("Starting Haar");
-    let (lut_lsb, _lut_msb) = haar(table_size, precision * 2, table_size, bit_width);
+    fn my_sigmoid(value: f64) -> f64 {
+        1f64 / (1f64 + (-value).exp())
+    }
+    let (lut_lsb, _lut_msb) = haar(precision * 2, table_size, bit_width, &my_sigmoid);
     println!("{:?}", lut_lsb);
     // println!("{:?}", lut_msb);
     println!("End Haar");

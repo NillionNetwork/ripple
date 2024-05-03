@@ -117,17 +117,18 @@ pub fn means_and_stds(dataset: &[Vec<f64>], num_features: usize) -> (Vec<f64>, V
 }
 
 pub fn haar(
-    table_size: u8,
     input_precision: u8,
     output_precision: u8,
     bit_width: u8,
+    f: &dyn Fn(f64) -> f64,
 ) -> (Vec<u64>, Vec<u64>) {
+    let table_size = bit_width >> 1;
     let max = 1 << bit_width;
     let mut data = Vec::new();
     for x in 0..max {
         let x = unquantize(x, input_precision, bit_width);
-        let sig = 1f64 / (1f64 + (-x).exp());
-        data.push(sig);
+        // data.push(x.sqrt());
+        data.push(f(x));
     }
     data.rotate_right(1 << (bit_width - 1));
     transform(

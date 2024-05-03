@@ -49,10 +49,12 @@ fn main() {
     // ------- Client side ------- //
     let bit_width = 24;
     let precision = 8;
-    let table_size = bit_width / 2;
     assert!(precision <= bit_width / 2);
 
-    let (lut_lsb, _lut_msb) = haar(table_size, 2 * precision, precision, bit_width);
+    fn my_sigmoid(value: f64) -> f64 {
+        1f64 / (1f64 + (-value).exp())
+    }
+    let (lut_lsb, _lut_msb) = haar(precision * 2, precision, bit_width, &my_sigmoid);
 
     // Number of blocks per ciphertext
     let nb_blocks = bit_width >> 2;

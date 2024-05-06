@@ -6,7 +6,7 @@ use tfhe::{
         gen_keys_radix, wopbs::*, IntegerCiphertext, IntegerRadixCiphertext, RadixCiphertext,
     },
     shortint::parameters::{
-        parameters_wopbs_message_carry::WOPBS_PARAM_MESSAGE_2_CARRY_2_KS_PBS,
+        parameters_wopbs_message_carry::WOPBS_PARAM_MESSAGE_2_CARRY_2_KS_PBS, Degree,
         PARAM_MESSAGE_2_CARRY_2_KS_PBS,
     },
 };
@@ -20,7 +20,7 @@ fn main() {
     let bit_width = 12;
 
     // Number of blocks per ciphertext
-    let nb_blocks = bit_width / 2;
+    let nb_blocks = bit_width >> 1;
     println!(
         "Number of blocks for the radix decomposition: {:?}",
         nb_blocks
@@ -63,6 +63,16 @@ fn main() {
         value.sqrt()
     }
     let (haar_lsb, haar_msb) = haar(precision, precision, bit_width as u8, &my_sqrt);
+    let dummy: RadixCiphertext = server_key.create_trivial_radix(0_u64, nb_blocks >> 1);
+    let mut dummy_blocks = dummy.into_blocks().to_vec();
+    for block in &mut dummy_blocks {
+        block.degree = Degree::new(x_ct.blocks()[0].degree.get());
+    }
+    let dummy = RadixCiphertext::from_blocks(dummy_blocks);
+    let dummy = wopbs_key.keyswitch_to_wopbs_params(&server_key, &dummy);
+
+    let haar_lsb_lut = wopbs_key.generate_lut_radix(&dummy, |x: u64| eval_lut(x, &haar_lsb));
+    let haar_msb_lut = wopbs_key.generate_lut_radix(&dummy, |x: u64| eval_lut(x, &haar_msb));
 
     // Ptxt DWT Haar -- works correctly.
     // let x_truncated = x >> (bit_width >> 1);
@@ -73,12 +83,6 @@ fn main() {
     let x_truncated_blocks = &x_ct.into_blocks()[(nb_blocks >> 1)..nb_blocks];
     let x_truncated = RadixCiphertext::from_blocks(x_truncated_blocks.to_vec());
     let x_truncated_ks = wopbs_key.keyswitch_to_wopbs_params(&server_key, &x_truncated);
-
-    // TODO: moving these two above resulted in error.
-    let haar_lsb_lut =
-        wopbs_key.generate_lut_radix(&x_truncated_ks, |x: u64| eval_lut(x, &haar_lsb));
-    let haar_msb_lut =
-        wopbs_key.generate_lut_radix(&x_truncated_ks, |x: u64| eval_lut(x, &haar_msb));
 
     let (square_lsb, square_msb) = rayon::join(
         || {

@@ -14,7 +14,7 @@ use tfhe::{
         RadixCiphertext,
     },
     shortint::parameters::{
-        parameters_wopbs_message_carry::WOPBS_PARAM_MESSAGE_2_CARRY_2_KS_PBS,
+        parameters_wopbs_message_carry::WOPBS_PARAM_MESSAGE_2_CARRY_2_KS_PBS, Degree,
         PARAM_MESSAGE_2_CARRY_2_KS_PBS,
     },
 };
@@ -117,9 +117,14 @@ fn main() {
         let dummy_2 = server_key.scalar_mul_parallelized(&dummy, 2_u64);
         dummy = server_key.add_parallelized(&dummy_2, &dummy);
     }
+    dummy = wopbs_key.keyswitch_to_wopbs_params(&server_key, &dummy);
+    let mut dummy_blocks = dummy.clone().into_blocks().to_vec();
+    for block in &mut dummy_blocks {
+        block.degree = Degree::new(3);
+    }
+    dummy = RadixCiphertext::from_blocks(dummy_blocks);
     let dummy_blocks = &dummy.into_blocks()[(nb_blocks as usize)..((nb_blocks << 1) as usize)];
     let dummy_msb = RadixCiphertext::from_blocks(dummy_blocks.to_vec());
-    let dummy_msb = server_key.scalar_add_parallelized(&dummy_msb, 1);
     let exp_lut_lsb = wopbs_key.generate_lut_radix(&dummy_msb, |x: u64| eval_exp(x, &lut_lsb));
     println!(
         "LUT generation done in {:?} sec.",
@@ -146,7 +151,6 @@ fn main() {
                 let prediction_blocks =
                     &prediction.into_blocks()[(nb_blocks as usize)..((nb_blocks << 1) as usize)];
                 let prediction_msb = RadixCiphertext::from_blocks(prediction_blocks.to_vec());
-                let prediction_msb = server_key.scalar_add_parallelized(&prediction_msb, 1);
                 // Keyswitch and Bootstrap
                 prediction = wopbs_key.keyswitch_to_wopbs_params(&server_key, &prediction_msb);
                 let activation_lsb = wopbs_key.wopbs(&prediction, &exp_lut_lsb);
@@ -172,7 +176,6 @@ fn main() {
         let prediction_blocks =
             &prediction.into_blocks()[(nb_blocks as usize)..((nb_blocks << 1) as usize)];
         let prediction_msb = RadixCiphertext::from_blocks(prediction_blocks.to_vec());
-        let prediction_msb = server_key.scalar_add_parallelized(&prediction_msb, 1);
         // Keyswitch and Bootstrap
         prediction = wopbs_key.keyswitch_to_wopbs_params(&server_key, &prediction_msb);
         let activation_lsb = wopbs_key.wopbs(&prediction, &exp_lut_lsb);

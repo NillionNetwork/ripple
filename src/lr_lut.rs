@@ -4,9 +4,11 @@ use clap::{App, Arg};
 use rayon::prelude::*;
 use ripple::common::*;
 use tfhe::{
-    integer::{gen_keys_radix, wopbs::*, RadixCiphertext},
+    integer::{
+        gen_keys_radix, wopbs::*, IntegerCiphertext, IntegerRadixCiphertext, RadixCiphertext,
+    },
     shortint::parameters::{
-        parameters_wopbs_message_carry::WOPBS_PARAM_MESSAGE_2_CARRY_2_KS_PBS,
+        parameters_wopbs_message_carry::WOPBS_PARAM_MESSAGE_2_CARRY_2_KS_PBS, Degree,
         PARAM_MESSAGE_2_CARRY_2_KS_PBS,
     },
 };
@@ -92,6 +94,12 @@ fn main() {
         let dummy_2 = server_key.scalar_mul_parallelized(&dummy, 2_u64);
         dummy = server_key.add_parallelized(&dummy_2, &dummy);
     }
+    dummy = wopbs_key.keyswitch_to_wopbs_params(&server_key, &dummy);
+    let mut dummy_blocks = dummy.clone().into_blocks().to_vec();
+    for block in &mut dummy_blocks {
+        block.degree = Degree::new(3);
+    }
+    dummy = RadixCiphertext::from_blocks(dummy_blocks);
     let sigmoid_lut = wopbs_key.generate_lut_radix(&dummy, |x: u64| {
         sigmoid(x, 2 * precision, precision, bit_width)
     });

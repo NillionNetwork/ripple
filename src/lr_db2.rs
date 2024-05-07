@@ -3,18 +3,12 @@ use std::time::Instant;
 use clap::{App, Arg};
 use rayon::prelude::*;
 use ripple::common::*;
-// use serde::{Deserialize, Serialize};
 use tfhe::{
     integer::{
-        // ciphertext::BaseRadixCiphertext,
-        gen_keys_radix,
-        wopbs::*,
-        IntegerCiphertext,
-        IntegerRadixCiphertext,
-        RadixCiphertext,
+        gen_keys_radix, wopbs::*, IntegerCiphertext, IntegerRadixCiphertext, RadixCiphertext,
     },
     shortint::parameters::{
-        parameters_wopbs_message_carry::WOPBS_PARAM_MESSAGE_2_CARRY_2_KS_PBS,
+        parameters_wopbs_message_carry::WOPBS_PARAM_MESSAGE_2_CARRY_2_KS_PBS, Degree,
         PARAM_MESSAGE_2_CARRY_2_KS_PBS,
     },
 };
@@ -123,10 +117,20 @@ fn main() {
     let dummy_blocks_msb = &dummy_blocks[((j >> 1) as usize)..((nb_blocks as usize) - 3)];
     let dummy_lsb = RadixCiphertext::from_blocks(dummy_blocks_lsb.to_vec());
     let dummy_msb = RadixCiphertext::from_blocks(dummy_blocks_msb.to_vec());
-    let dummy_msb = server_key.scalar_add_parallelized(&dummy_msb, 1);
-    let dummy_lsb = server_key.scalar_add_parallelized(&dummy_lsb, 1);
+    let mut dummy_blocks = dummy_lsb.clone().into_blocks().to_vec();
+    for block in &mut dummy_blocks {
+        block.degree = Degree::new(3);
+    }
+    let dummy_lsb = RadixCiphertext::from_blocks(dummy_blocks);
+    let mut dummy_blocks = dummy_msb.clone().into_blocks().to_vec();
+    for block in &mut dummy_blocks {
+        block.degree = Degree::new(3);
+    }
+    let dummy_msb = RadixCiphertext::from_blocks(dummy_blocks);
     let mut lsb_luts = Vec::new();
     let mut msb_luts = Vec::new();
+    let dummy_msb = server_key.scalar_add_parallelized(&dummy_msb, 1);
+    let dummy_lsb = server_key.scalar_add_parallelized(&dummy_lsb, 1);
     for lut_lsb in lut_lsbs.iter() {
         lsb_luts.push(wopbs_key.generate_lut_radix(&dummy_lsb, |x: u64| eval_lut(x, lut_lsb)));
     }

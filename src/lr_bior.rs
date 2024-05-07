@@ -6,15 +6,10 @@ use ripple::common::*;
 // use serde::{Deserialize, Serialize};
 use tfhe::{
     integer::{
-        // ciphertext::BaseRadixCiphertext,
-        gen_keys_radix,
-        wopbs::*,
-        IntegerCiphertext,
-        IntegerRadixCiphertext,
-        RadixCiphertext,
+        gen_keys_radix, wopbs::*, IntegerCiphertext, IntegerRadixCiphertext, RadixCiphertext,
     },
     shortint::parameters::{
-        parameters_wopbs_message_carry::WOPBS_PARAM_MESSAGE_2_CARRY_2_KS_PBS,
+        parameters_wopbs_message_carry::WOPBS_PARAM_MESSAGE_2_CARRY_2_KS_PBS, Degree,
         PARAM_MESSAGE_2_CARRY_2_KS_PBS,
     },
 };
@@ -115,6 +110,12 @@ fn main() {
         [((nb_blocks as usize) - (nb_blocks_msb as usize))..(nb_blocks as usize)];
     let dummy_msb = RadixCiphertext::from_blocks(dummy_blocks_msb.to_vec());
     let dummy_msb = server_key.scalar_add_parallelized(&dummy_msb, 1);
+    let dummy_msb = wopbs_key.keyswitch_to_wopbs_params(&server_key, &dummy_msb);
+    let mut dummy_blocks = dummy_msb.clone().into_blocks().to_vec();
+    for block in &mut dummy_blocks {
+        block.degree = Degree::new(3);
+    }
+    let dummy_msb = RadixCiphertext::from_blocks(dummy_blocks);
     let mut msb_luts = Vec::new();
     msb_luts.push(wopbs_key.generate_lut_radix(&dummy_msb, |x: u64| {
         eval_lut_minus_1(x, &lut_lsb, 2u64.pow((lut_bit_width) as u32))

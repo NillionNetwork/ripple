@@ -1,4 +1,4 @@
-use std::time::Instant;
+use std::{f64::consts::E, time::Instant};
 
 use ripple::common::*;
 use tfhe::{
@@ -80,7 +80,7 @@ fn ct_lut_eval_haar(
 
 fn main() {
     // ------- Client side ------- //
-    let bit_width = 12;
+    let bit_width = 16;
 
     // Number of blocks per ciphertext
     let nb_blocks = bit_width >> 1;
@@ -103,7 +103,7 @@ fn main() {
         start.elapsed().as_secs_f64()
     );
 
-    let precision = 4u8;
+    let precision = 8u8;
     let x = quantize(64.0, precision, bit_width as u8);
     let x_ct = client_key.encrypt(x);
 
@@ -296,7 +296,7 @@ fn main() {
         lut_time_pt1 + lut_time_pt2
     );
 
-    // 4.2. 1/sqrt(x) using Haar DWT LUT
+    // 5.2. 1/sqrt(x) using Haar DWT LUT
     let (inv_sqrt_ct_haar, dwt_time) = ct_lut_eval_haar(
         x_ct.clone(),
         precision,
@@ -315,5 +315,139 @@ fn main() {
         dwt_inv_sqrt,
         unquantize(lut_inv_sqrt, precision, bit_width as u8),
         unquantize(dwt_inv_sqrt, precision, bit_width as u8),
+    );
+
+    // 6.1 e^x using LUT
+    fn exponential(value: f64) -> f64 {
+        E.powf(value)
+    }
+    let (exp_ct, lut_time) = ct_lut_eval(
+        x_ct.clone(),
+        precision,
+        bit_width,
+        &exponential,
+        &wopbs_key,
+        &server_key,
+    );
+    let lut_exp: u64 = client_key.decrypt(&exp_ct);
+    println!("Exponential (LUT) time: {:?}", lut_time);
+
+    // 6.2. e^x using Haar DWT LUT
+    let (exp_ct_haar, dwt_time) = ct_lut_eval_haar(
+        x_ct.clone(),
+        precision,
+        bit_width,
+        nb_blocks,
+        &inv_sqrt,
+        &wopbs_key,
+        &server_key,
+    );
+    let dwt_exp: u64 = client_key.decrypt(&exp_ct_haar);
+    println!("Exponential (Haar) time: {:?}", dwt_time);
+
+    println!(
+        "--- LUT: {:?}, DWT LUT: {:?}\n--- unq: LUT: {:?}, DWT LUT: {:?}",
+        lut_exp,
+        dwt_exp,
+        unquantize(lut_exp, precision, bit_width as u8),
+        unquantize(dwt_exp, precision, bit_width as u8),
+    );
+
+    // 7.1 x / 8 using LUT
+    fn div_const(value: f64) -> f64 {
+        value / 8_f64
+    }
+    let start = Instant::now();
+    let div_ct = server_key.scalar_div_parallelized(&x_ct, 8_u64);
+    let lut_time = start.elapsed().as_secs_f64();
+    let lut_div: u64 = client_key.decrypt(&div_ct);
+    println!("Scalar Division (LUT) time: {:?}", lut_time);
+
+    // 7.2. x / 8 using Haar DWT LUT
+    let (div_ct_haar, dwt_time) = ct_lut_eval_haar(
+        x_ct.clone(),
+        precision,
+        bit_width,
+        nb_blocks,
+        &div_const,
+        &wopbs_key,
+        &server_key,
+    );
+    let dwt_div: u64 = client_key.decrypt(&div_ct_haar);
+    println!("Scalar Division (Haar) time: {:?}", dwt_time);
+
+    println!(
+        "--- LUT: {:?}, DWT LUT: {:?}\n--- unq: LUT: {:?}, DWT LUT: {:?}",
+        lut_div,
+        dwt_div,
+        unquantize(lut_div, precision, bit_width as u8),
+        unquantize(dwt_div, precision, bit_width as u8),
+    );
+
+    // 8.1 ReLU using LUT
+    fn relu(value: f64) -> f64 {
+        if value > 0_f64 { value } else { 0_f64 }
+    }
+    let (relu_ct, lut_time) = ct_lut_eval(
+        x_ct.clone(),
+        precision,
+        bit_width,
+        &relu,
+        &wopbs_key,
+        &server_key,
+    );
+    let lut_relu: u64 = client_key.decrypt(&relu_ct);
+    println!("ReLU (LUT) time: {:?}", lut_time);
+
+    // 8.2. ReLU using Haar DWT LUT
+    let (relu_ct_haar, dwt_time) = ct_lut_eval_haar(
+        x_ct.clone(),
+        precision,
+        bit_width,
+        nb_blocks,
+        &relu,
+        &wopbs_key,
+        &server_key,
+    );
+    let dwt_relu: u64 = client_key.decrypt(&relu_ct_haar);
+    println!("ReLU (Haar) time: {:?}", dwt_time);
+
+    println!(
+        "--- LUT: {:?}, DWT LUT: {:?}\n--- unq: LUT: {:?}, DWT LUT: {:?}",
+        lut_relu,
+        dwt_relu,
+        unquantize(lut_relu, precision, bit_width as u8),
+        unquantize(dwt_relu, precision, bit_width as u8),
+    );
+
+    // 9.1 x > 2 using LUT
+    fn gt(value: f64) -> f64 {
+        ((value > 2_f64) as u8) as f64
+    }
+    let start = Instant::now();
+    let gt_ct = server_key.scalar_gt_parallelized(&x_ct, 2);
+    let lut_time = start.elapsed().as_secs_f64();
+    let lut_gt: bool = client_key.decrypt_bool(&gt_ct);
+    println!("Scalar GT (LUT) time: {:?}", lut_time);
+
+    // 9.2. x > 2 using Haar DWT LUT
+    let (gt_ct_haar, dwt_time) = ct_lut_eval_haar(
+        x_ct.clone(),
+        precision,
+        bit_width,
+        nb_blocks,
+        &gt,
+        &wopbs_key,
+        &server_key,
+    );
+    let dwt_gt: u64 = client_key.decrypt(&gt_ct_haar);
+    println!("Scalar GT (Haar) time: {:?}", dwt_time);
+
+    println!(
+        "--- LUT: {:?}, DWT LUT: {:?}\n--- unq: LUT: {:?}, DWT LUT: {:?}",
+        lut_gt,
+        dwt_gt,
+        unquantize(lut_gt as u64, precision, bit_width as u8),
+        unquantize(dwt_gt, precision, bit_width as u8),
     );
 }

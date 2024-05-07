@@ -106,6 +106,8 @@ fn main() {
     let precision = 8u8;
     let x = quantize(64.0, precision, bit_width as u8);
     let x_ct = client_key.encrypt(x);
+    let y = quantize(2.0, precision, bit_width as u8);
+    let y_ct = client_key.encrypt(y);
 
     // ------- Server side ------- //
 
@@ -296,7 +298,7 @@ fn main() {
         lut_time_pt1 + lut_time_pt2
     );
 
-    // 5.2. 1/sqrt(x) using Haar DWT LUT
+    // 5.2. 1000/sqrt(x) using Haar DWT LUT
     let (inv_sqrt_ct_haar, dwt_time) = ct_lut_eval_haar(
         x_ct.clone(),
         precision,
@@ -317,12 +319,12 @@ fn main() {
         unquantize(dwt_inv_sqrt, precision, bit_width as u8),
     );
 
-    // 6.1 e^x using LUT
+    // 6.1 e^y using LUT
     fn exponential(value: f64) -> f64 {
         E.powf(value)
     }
     let (exp_ct, lut_time) = ct_lut_eval(
-        x_ct.clone(),
+        y_ct.clone(),
         precision,
         bit_width,
         &exponential,
@@ -332,13 +334,13 @@ fn main() {
     let lut_exp: u64 = client_key.decrypt(&exp_ct);
     println!("Exponential (LUT) time: {:?}", lut_time);
 
-    // 6.2. e^x using Haar DWT LUT
+    // 6.2. e^y using Haar DWT LUT
     let (exp_ct_haar, dwt_time) = ct_lut_eval_haar(
-        x_ct.clone(),
+        y_ct.clone(),
         precision,
         bit_width,
         nb_blocks,
-        &inv_sqrt,
+        &exponential,
         &wopbs_key,
         &server_key,
     );
@@ -447,7 +449,38 @@ fn main() {
         "--- LUT: {:?}, DWT LUT: {:?}\n--- unq: LUT: {:?}, DWT LUT: {:?}",
         lut_gt,
         dwt_gt,
-        unquantize(lut_gt as u64, precision, bit_width as u8),
+        lut_gt,
+        unquantize(dwt_gt, precision, bit_width as u8),
+    );
+
+    // 9.1 x > y using LUT
+    fn gt_pt2(value: f64) -> f64 {
+        ((value > 0_f64) as u8) as f64
+    }
+    let start = Instant::now();
+    let gt_ct = server_key.gt_parallelized(&x_ct, &y_ct);
+    let lut_time = start.elapsed().as_secs_f64();
+    let lut_gt: bool = client_key.decrypt_bool(&gt_ct);
+    println!("GT (LUT) time: {:?}", lut_time);
+
+    // 9.2. x > y using Haar DWT LUT
+    let (gt_ct_haar, dwt_time) = ct_lut_eval_haar(
+        x_ct.clone(),
+        precision,
+        bit_width,
+        nb_blocks,
+        &gt_pt2,
+        &wopbs_key,
+        &server_key,
+    );
+    let dwt_gt: u64 = client_key.decrypt(&gt_ct_haar);
+    println!("GT (Haar) time: {:?}", dwt_time);
+
+    println!(
+        "--- LUT: {:?}, DWT LUT: {:?}\n--- unq: LUT: {:?}, DWT LUT: {:?}",
+        lut_gt,
+        dwt_gt,
+        lut_gt,
         unquantize(dwt_gt, precision, bit_width as u8),
     );
 }

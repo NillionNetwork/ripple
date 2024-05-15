@@ -83,6 +83,12 @@ path = "src/euclidean.rs"
 name = "primitive_ops"
 path = "src/primitive_ops.rs"
 
+# Edge Detection
+
 [[bin]]
 name = "edge_detection_ptxt"
 path = "src/edge_detection_ptxt.rs"
+
+[[bin]]
+name = "edge_detection_lut"
+path = "src/edge_detection_lut.rs"

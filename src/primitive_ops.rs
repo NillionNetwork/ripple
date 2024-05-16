@@ -1,6 +1,7 @@
 use std::{f64::consts::E, time::Instant};
 
 use ripple::common::*;
+use statrs::function::erf::erf;
 use tfhe::{
     integer::{
         gen_keys_radix, wopbs::*, IntegerCiphertext, IntegerRadixCiphertext, RadixCiphertext,
@@ -80,7 +81,7 @@ fn ct_lut_eval_haar(
 
 fn main() {
     // ------- Client side ------- //
-    let bit_width = 16;
+    let bit_width = 24;
 
     // Number of blocks per ciphertext
     let nb_blocks = bit_width >> 1;
@@ -103,7 +104,7 @@ fn main() {
         start.elapsed().as_secs_f64()
     );
 
-    let precision = 8u8;
+    let precision = 16u8;
     let x = quantize(64.0, precision, bit_width as u8);
     let x_ct = client_key.encrypt(x);
     let y = quantize(2.0, precision, bit_width as u8);
@@ -453,7 +454,7 @@ fn main() {
         unquantize(dwt_gt, precision, bit_width as u8),
     );
 
-    // 9.1 x > y using LUT
+    // 10.1 x > y using LUT
     fn gt_pt2(value: f64) -> f64 {
         ((value > 0_f64) as u8) as f64
     }
@@ -463,7 +464,7 @@ fn main() {
     let lut_gt: bool = client_key.decrypt_bool(&gt_ct);
     println!("GT (LUT) time: {:?}", lut_time);
 
-    // 9.2. x > y using Haar DWT LUT
+    // 10.2. x > y using Haar DWT LUT
     let (gt_ct_haar, dwt_time) = ct_lut_eval_haar(
         x_ct.clone(),
         precision,
@@ -482,5 +483,38 @@ fn main() {
         dwt_gt,
         lut_gt,
         unquantize(dwt_gt, precision, bit_width as u8),
+    );
+
+    // 11.1 ERF using LUT
+    let (erf_ct, lut_time) = ct_lut_eval(
+        x_ct.clone(),
+        precision,
+        bit_width,
+        &erf,
+        &wopbs_key,
+        &server_key,
+    );
+    let lut_erf: u64 = client_key.decrypt(&erf_ct);
+    println!("ERF (LUT) time: {:?}", lut_time);
+
+    // 11.2 ERF using Haar DWT LUT
+    let (erf_ct_haar, dwt_time) = ct_lut_eval_haar(
+        x_ct.clone(),
+        precision,
+        bit_width,
+        nb_blocks,
+        &erf,
+        &wopbs_key,
+        &server_key,
+    );
+    let dwt_erf: u64 = client_key.decrypt(&erf_ct_haar);
+    println!("ERF (Haar) time: {:?}", dwt_time);
+
+    println!(
+        "--- LUT: {:?}, DWT LUT: {:?}\n--- unq: LUT: {:?}, DWT LUT: {:?}",
+        lut_erf,
+        dwt_erf,
+        unquantize(lut_erf, precision, bit_width as u8),
+        unquantize(dwt_erf, precision, bit_width as u8),
     );
 }

@@ -1,4 +1,4 @@
-use std::{f64::consts::E, time::Instant};
+use std::time::Instant;
 
 use ripple::common::*;
 use statrs::function::erf::erf;
@@ -34,6 +34,32 @@ fn ct_lut_eval(
     let mut lut_ct = wopbs_key.wopbs(&ct_ks, &func_lut);
     lut_ct = wopbs_key.keyswitch_to_pbs_params(&lut_ct);
     (lut_ct, start.elapsed().as_secs_f64())
+}
+
+fn ct_lut_eval_quantized(
+    ct: RadixCiphertext,
+    precision: u8,
+    bit_width: usize,
+    nb_blocks: usize,
+    func: &dyn Fn(f64) -> f64,
+    wopbs_key: &WopbsKey,
+    server_key: &ServerKey,
+) -> (RadixCiphertext, f64) {
+    let quant_blocks = &ct.clone().into_blocks()[(nb_blocks >> 1)..nb_blocks];
+    let quantized_ct = RadixCiphertext::from_blocks(quant_blocks.to_vec());
+    let quantized_lut = wopbs_key.generate_lut_radix(&quantized_ct, |x: u64| {
+        let x_unquantized = unquantize(x, precision, bit_width as u8);
+        quantize(func(x_unquantized), precision, bit_width as u8)
+    });
+    let start = Instant::now();
+    let quant_blocks = &ct.into_blocks()[(nb_blocks >> 1)..nb_blocks];
+    let quantized_ct = RadixCiphertext::from_blocks(quant_blocks.to_vec());
+    let quantized_ct = wopbs_key.keyswitch_to_wopbs_params(server_key, &quantized_ct);
+    let quantized_ct = wopbs_key.wopbs(&quantized_ct, &quantized_lut);
+    (
+        wopbs_key.keyswitch_to_pbs_params(&quantized_ct),
+        start.elapsed().as_secs_f64(),
+    )
 }
 
 fn ct_lut_eval_haar(
@@ -107,8 +133,6 @@ fn main() {
     let precision = 16u8;
     let x = quantize(64.0, precision, bit_width as u8);
     let x_ct = client_key.encrypt(x);
-    let y = quantize(2.0, precision, bit_width as u8);
-    let y_ct = client_key.encrypt(y);
 
     // ------- Server side ------- //
 
@@ -140,12 +164,27 @@ fn main() {
     let dwt_lut_prod: u64 = client_key.decrypt(&square_ct_haar);
     println!("Square root (Haar) time: {:?}", dwt_time);
 
+    // 1.3 Square root using Quantized LUT
+    let (square_ct_quant, lut_time_quant) = ct_lut_eval_quantized(
+        x_ct.clone(),
+        precision,
+        bit_width,
+        nb_blocks,
+        &my_sqrt,
+        &wopbs_key,
+        &server_key,
+    );
+    let lut_prod_quant: u64 = client_key.decrypt(&square_ct_quant);
+    println!("Square root (Quantized LUT) time: {:?}", lut_time_quant);
+
     println!(
-        "--- LUT: {:?}, DWT LUT: {:?}\n--- unq: LUT: {:?}, DWT LUT: {:?}",
+        "--- LUT: {:?}, DWT LUT: {:?}, Quant LUT: {:?}, \n--- unq: LUT: {:?}, DWT LUT: {:?}, Quant LUT {:?}",
         lut_prod,
         dwt_lut_prod,
+        lut_prod_quant,
         unquantize(lut_prod, precision, bit_width as u8),
         unquantize(dwt_lut_prod, precision, bit_width as u8),
+        unquantize(lut_prod_quant, precision, bit_width as u8),
     );
 
     // 2.1 1000/x using LUT
@@ -176,12 +215,27 @@ fn main() {
     let dwt_lut_inv: u64 = client_key.decrypt(&inverse_ct_haar);
     println!("Scaled Inverse (Haar) time: {:?}", dwt_time);
 
+    // 2.3 1000/x using Quantized LUT
+    let (inverse_ct_quant, lut_time_quant) = ct_lut_eval_quantized(
+        x_ct.clone(),
+        precision,
+        bit_width,
+        nb_blocks,
+        &scaled_inverse,
+        &wopbs_key,
+        &server_key,
+    );
+    let lut_inv_quant: u64 = client_key.decrypt(&inverse_ct_quant);
+    println!("Scaled Inverse (Quantized LUT) time: {:?}", lut_time_quant);
+
     println!(
-        "--- LUT: {:?}, DWT LUT: {:?}\n--- unq: LUT: {:?}, DWT LUT: {:?}",
+        "--- LUT: {:?}, DWT LUT: {:?}, Quant LUT: {:?}, \n--- unq: LUT: {:?}, DWT LUT: {:?}, Quant LUT {:?}",
         lut_inv,
         dwt_lut_inv,
+        lut_inv_quant,
         unquantize(lut_inv, precision, bit_width as u8),
         unquantize(dwt_lut_inv, precision, bit_width as u8),
+        unquantize(lut_inv_quant, precision, bit_width as u8),
     );
 
     // 3.1 log2(x) using LUT
@@ -212,12 +266,27 @@ fn main() {
     let dwt_lut_log: u64 = client_key.decrypt(&log_ct_haar);
     println!("log2(x) (Haar) time: {:?}", dwt_time);
 
+    // 3.3 log2(x) using Quantized LUT
+    let (log_ct_quant, lut_time_quant) = ct_lut_eval_quantized(
+        x_ct.clone(),
+        precision,
+        bit_width,
+        nb_blocks,
+        &my_log,
+        &wopbs_key,
+        &server_key,
+    );
+    let lut_log_quant: u64 = client_key.decrypt(&log_ct_quant);
+    println!("log2(x) (Quantized LUT) time: {:?}", lut_time_quant);
+
     println!(
-        "--- LUT: {:?}, DWT LUT: {:?}\n--- unq: LUT: {:?}, DWT LUT: {:?}",
+        "--- LUT: {:?}, DWT LUT: {:?}, Quant LUT: {:?}, \n--- unq: LUT: {:?}, DWT LUT: {:?}, Quant LUT {:?}",
         lut_log,
         dwt_lut_log,
+        lut_log_quant,
         unquantize(lut_log, precision, bit_width as u8),
         unquantize(dwt_lut_log, precision, bit_width as u8),
+        unquantize(lut_log_quant, precision, bit_width as u8),
     );
 
     // 4.1 sigmoid(x) using LUT
@@ -262,12 +331,38 @@ fn main() {
     let dwt_lut_sig: u64 = client_key.decrypt(&sig_ct_haar);
     println!("Sigmoid (Haar) time: {:?}", dwt_time);
 
+    // 4.3 sigmoid(x) using Quantized LUT
+    let (sig_ct_quant, lut_time_quant_pt1) = ct_lut_eval_quantized(
+        x_ct.clone(),
+        precision,
+        bit_width,
+        nb_blocks,
+        &sigmoid_naive_pt1,
+        &wopbs_key,
+        &server_key,
+    );
+    let (sig_ct_quant, lut_time_quant_pt2) = ct_lut_eval(
+        sig_ct_quant,
+        precision,
+        bit_width >> 1,
+        &sigmoid_naive_pt2,
+        &wopbs_key,
+        &server_key,
+    );
+    let lut_sig_quant: u64 = client_key.decrypt(&sig_ct_quant);
     println!(
-        "--- LUT: {:?}, DWT LUT: {:?}\n--- unq: LUT: {:?}, DWT LUT: {:?}",
+        "Sigmoid (Quantized LUT) time: {:?}",
+        lut_time_quant_pt1 + lut_time_quant_pt2
+    );
+
+    println!(
+        "--- LUT: {:?}, DWT LUT: {:?}, Quant LUT: {:?}, \n--- unq: LUT: {:?}, DWT LUT: {:?}, Quant LUT {:?}",
         lut_sig,
         dwt_lut_sig,
+        lut_sig_quant,
         unquantize(lut_sig, precision, bit_width as u8),
         unquantize(dwt_lut_sig, precision, bit_width as u8),
+        unquantize(lut_sig_quant, precision, bit_width as u8),
     );
 
     // 5.1 1000/sqrt(x) using LUT
@@ -312,180 +407,41 @@ fn main() {
     let dwt_inv_sqrt: u64 = client_key.decrypt(&inv_sqrt_ct_haar);
     println!("Inverse Square Root (Haar) time: {:?}", dwt_time);
 
+    // 5.3 1000/sqrt(x) using Quantized LUT
+    let (inv_sqrt_ct_quant, lut_time_quant_pt1) = ct_lut_eval_quantized(
+        x_ct.clone(),
+        precision,
+        bit_width,
+        nb_blocks,
+        &my_sqrt,
+        &wopbs_key,
+        &server_key,
+    );
+    let (inv_sqrt_ct_quant, lut_time_quant_pt2) = ct_lut_eval(
+        inv_sqrt_ct_quant,
+        precision,
+        bit_width >> 1,
+        &inv,
+        &wopbs_key,
+        &server_key,
+    );
+    let lut_inv_sqrt_quant: u64 = client_key.decrypt(&inv_sqrt_ct_quant);
     println!(
-        "--- LUT: {:?}, DWT LUT: {:?}\n--- unq: LUT: {:?}, DWT LUT: {:?}",
+        "Inverse Square Root (Quantized LUT) time: {:?}",
+        lut_time_quant_pt1 + lut_time_quant_pt2
+    );
+
+    println!(
+        "--- LUT: {:?}, DWT LUT: {:?}, Quant LUT: {:?}, \n--- unq: LUT: {:?}, DWT LUT: {:?}, Quant LUT {:?}",
         lut_inv_sqrt,
         dwt_inv_sqrt,
+        lut_inv_sqrt_quant,
         unquantize(lut_inv_sqrt, precision, bit_width as u8),
         unquantize(dwt_inv_sqrt, precision, bit_width as u8),
+        unquantize(lut_inv_sqrt_quant, precision, bit_width as u8),
     );
 
-    // 6.1 e^y using LUT
-    fn exponential(value: f64) -> f64 {
-        E.powf(value)
-    }
-    let (exp_ct, lut_time) = ct_lut_eval(
-        y_ct.clone(),
-        precision,
-        bit_width,
-        &exponential,
-        &wopbs_key,
-        &server_key,
-    );
-    let lut_exp: u64 = client_key.decrypt(&exp_ct);
-    println!("Exponential (LUT) time: {:?}", lut_time);
-
-    // 6.2. e^y using Haar DWT LUT
-    let (exp_ct_haar, dwt_time) = ct_lut_eval_haar(
-        y_ct.clone(),
-        precision,
-        bit_width,
-        nb_blocks,
-        &exponential,
-        &wopbs_key,
-        &server_key,
-    );
-    let dwt_exp: u64 = client_key.decrypt(&exp_ct_haar);
-    println!("Exponential (Haar) time: {:?}", dwt_time);
-
-    println!(
-        "--- LUT: {:?}, DWT LUT: {:?}\n--- unq: LUT: {:?}, DWT LUT: {:?}",
-        lut_exp,
-        dwt_exp,
-        unquantize(lut_exp, precision, bit_width as u8),
-        unquantize(dwt_exp, precision, bit_width as u8),
-    );
-
-    // 7.1 x / 8 using LUT
-    fn div_const(value: f64) -> f64 {
-        value / 8_f64
-    }
-    let start = Instant::now();
-    let div_ct = server_key.scalar_div_parallelized(&x_ct, 8_u64);
-    let lut_time = start.elapsed().as_secs_f64();
-    let lut_div: u64 = client_key.decrypt(&div_ct);
-    println!("Scalar Division (LUT) time: {:?}", lut_time);
-
-    // 7.2. x / 8 using Haar DWT LUT
-    let (div_ct_haar, dwt_time) = ct_lut_eval_haar(
-        x_ct.clone(),
-        precision,
-        bit_width,
-        nb_blocks,
-        &div_const,
-        &wopbs_key,
-        &server_key,
-    );
-    let dwt_div: u64 = client_key.decrypt(&div_ct_haar);
-    println!("Scalar Division (Haar) time: {:?}", dwt_time);
-
-    println!(
-        "--- LUT: {:?}, DWT LUT: {:?}\n--- unq: LUT: {:?}, DWT LUT: {:?}",
-        lut_div,
-        dwt_div,
-        unquantize(lut_div, precision, bit_width as u8),
-        unquantize(dwt_div, precision, bit_width as u8),
-    );
-
-    // 8.1 ReLU using LUT
-    fn relu(value: f64) -> f64 {
-        if value > 0_f64 { value } else { 0_f64 }
-    }
-    let (relu_ct, lut_time) = ct_lut_eval(
-        x_ct.clone(),
-        precision,
-        bit_width,
-        &relu,
-        &wopbs_key,
-        &server_key,
-    );
-    let lut_relu: u64 = client_key.decrypt(&relu_ct);
-    println!("ReLU (LUT) time: {:?}", lut_time);
-
-    // 8.2. ReLU using Haar DWT LUT
-    let (relu_ct_haar, dwt_time) = ct_lut_eval_haar(
-        x_ct.clone(),
-        precision,
-        bit_width,
-        nb_blocks,
-        &relu,
-        &wopbs_key,
-        &server_key,
-    );
-    let dwt_relu: u64 = client_key.decrypt(&relu_ct_haar);
-    println!("ReLU (Haar) time: {:?}", dwt_time);
-
-    println!(
-        "--- LUT: {:?}, DWT LUT: {:?}\n--- unq: LUT: {:?}, DWT LUT: {:?}",
-        lut_relu,
-        dwt_relu,
-        unquantize(lut_relu, precision, bit_width as u8),
-        unquantize(dwt_relu, precision, bit_width as u8),
-    );
-
-    // 9.1 x > 2 using LUT
-    fn gt(value: f64) -> f64 {
-        ((value > 2_f64) as u8) as f64
-    }
-    let start = Instant::now();
-    let gt_ct = server_key.scalar_gt_parallelized(&x_ct, 2);
-    let lut_time = start.elapsed().as_secs_f64();
-    let lut_gt: bool = client_key.decrypt_bool(&gt_ct);
-    println!("Scalar GT (LUT) time: {:?}", lut_time);
-
-    // 9.2. x > 2 using Haar DWT LUT
-    let (gt_ct_haar, dwt_time) = ct_lut_eval_haar(
-        x_ct.clone(),
-        precision,
-        bit_width,
-        nb_blocks,
-        &gt,
-        &wopbs_key,
-        &server_key,
-    );
-    let dwt_gt: u64 = client_key.decrypt(&gt_ct_haar);
-    println!("Scalar GT (Haar) time: {:?}", dwt_time);
-
-    println!(
-        "--- LUT: {:?}, DWT LUT: {:?}\n--- unq: LUT: {:?}, DWT LUT: {:?}",
-        lut_gt,
-        dwt_gt,
-        lut_gt,
-        unquantize(dwt_gt, precision, bit_width as u8),
-    );
-
-    // 10.1 x > y using LUT
-    fn gt_pt2(value: f64) -> f64 {
-        ((value > 0_f64) as u8) as f64
-    }
-    let start = Instant::now();
-    let gt_ct = server_key.gt_parallelized(&x_ct, &y_ct);
-    let lut_time = start.elapsed().as_secs_f64();
-    let lut_gt: bool = client_key.decrypt_bool(&gt_ct);
-    println!("GT (LUT) time: {:?}", lut_time);
-
-    // 10.2. x > y using Haar DWT LUT
-    let (gt_ct_haar, dwt_time) = ct_lut_eval_haar(
-        x_ct.clone(),
-        precision,
-        bit_width,
-        nb_blocks,
-        &gt_pt2,
-        &wopbs_key,
-        &server_key,
-    );
-    let dwt_gt: u64 = client_key.decrypt(&gt_ct_haar);
-    println!("GT (Haar) time: {:?}", dwt_time);
-
-    println!(
-        "--- LUT: {:?}, DWT LUT: {:?}\n--- unq: LUT: {:?}, DWT LUT: {:?}",
-        lut_gt,
-        dwt_gt,
-        lut_gt,
-        unquantize(dwt_gt, precision, bit_width as u8),
-    );
-
-    // 11.1 ERF using LUT
+    // 6.1 ERF using LUT
     let (erf_ct, lut_time) = ct_lut_eval(
         x_ct.clone(),
         precision,
@@ -497,7 +453,7 @@ fn main() {
     let lut_erf: u64 = client_key.decrypt(&erf_ct);
     println!("ERF (LUT) time: {:?}", lut_time);
 
-    // 11.2 ERF using Haar DWT LUT
+    // 6.2 ERF using Haar DWT LUT
     let (erf_ct_haar, dwt_time) = ct_lut_eval_haar(
         x_ct.clone(),
         precision,
@@ -510,11 +466,47 @@ fn main() {
     let dwt_erf: u64 = client_key.decrypt(&erf_ct_haar);
     println!("ERF (Haar) time: {:?}", dwt_time);
 
+    // 6.3 ERF using Quantized LUT
+    let (erf_ct_quant, lut_time_quant) = ct_lut_eval_quantized(
+        x_ct.clone(),
+        precision,
+        bit_width,
+        nb_blocks,
+        &erf,
+        &wopbs_key,
+        &server_key,
+    );
+    let lut_erf_quant: u64 = client_key.decrypt(&erf_ct_quant);
+    println!("ERF (Quantized LUT) time: {:?}", lut_time_quant);
+
     println!(
-        "--- LUT: {:?}, DWT LUT: {:?}\n--- unq: LUT: {:?}, DWT LUT: {:?}",
+        "--- LUT: {:?}, DWT LUT: {:?}, Quant LUT: {:?}, \n--- unq: LUT: {:?}, DWT LUT: {:?}, Quant LUT {:?}",
         lut_erf,
         dwt_erf,
+        lut_erf_quant,
         unquantize(lut_erf, precision, bit_width as u8),
         unquantize(dwt_erf, precision, bit_width as u8),
+        unquantize(lut_erf_quant, precision, bit_width as u8),
     );
+
+    // let x_ct = client_key.encrypt(5_u64);
+    // let x_neg_ct = client_key.encrypt(2_u64.pow(bit_width as u32)-5_u64);
+
+    // let start = Instant::now();
+    // let msb_block = vec![x_ct.blocks()[nb_blocks-1].clone(); 1];
+    // let msb_radix = RadixCiphertext::from_blocks(msb_block);
+    // let msb = server_key.scalar_right_shift_parallelized(&msb_radix, 1);
+    // let sign_extract_time = start.elapsed().as_secs_f64();
+    // let msb_dec: u64 = client_key.decrypt(&msb);
+    // println!("Sign Extraction time: {:?}", sign_extract_time);
+    // println!("Sign: {:?}", msb_dec);
+
+    // let start = Instant::now();
+    // let msb_block = vec![x_neg_ct.blocks()[nb_blocks-1].clone(); 1];
+    // let msb_radix = RadixCiphertext::from_blocks(msb_block);
+    // let msb = server_key.scalar_right_shift_parallelized(&msb_radix, 1);
+    // let sign_extract_time = start.elapsed().as_secs_f64();
+    // let msb_dec: u64 = client_key.decrypt(&msb);
+    // println!("Sign Extraction time: {:?}", sign_extract_time);
+    // println!("Sign: {:?}", msb_dec);
 }

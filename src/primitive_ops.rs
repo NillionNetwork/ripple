@@ -206,6 +206,7 @@ fn ct_lut_eval_bior(
     luts: &Vec<&Vec<u64>>,
     wave_depth: usize,
     wopbs_key: &WopbsKey,
+    offset: i32,
     server_key: &ServerKey,
 ) -> (RadixCiphertext, f64) {
     let nb_blocks_lsb = (bit_width - wave_depth) >> 1;
@@ -248,8 +249,14 @@ fn ct_lut_eval_bior(
             lut_lsb_blocks.extend(padding_ct_block.clone());
             let mut lsb_blocks = lsb.clone().into_blocks();
             lsb_blocks.extend(padding_ct_block);
-            let lut_combined = RadixCiphertext::from_blocks(lut_lsb_blocks);
+            let mut lut_combined = RadixCiphertext::from_blocks(lut_lsb_blocks);
             let lsb_extended = RadixCiphertext::from_blocks(lsb_blocks);
+
+            // subtract offset (if necessary)
+            if (offset.abs() as u64) > 0 {
+                lut_combined =
+                    server_key.scalar_sub_parallelized(&lut_combined, offset.abs() as u64);
+            }
 
             // l1 = 2^J - lsb
             let scalar_l1: RadixCiphertext =
@@ -271,9 +278,14 @@ fn ct_lut_eval_bior(
             lut_lsb_blocks.extend(padding_ct_block.clone());
             let mut lsb_blocks = lsb.clone().into_blocks();
             lsb_blocks.extend(padding_ct_block);
-            let lut_combined = RadixCiphertext::from_blocks(lut_lsb_blocks);
+            let mut lut_combined = RadixCiphertext::from_blocks(lut_lsb_blocks);
             let lsb_extended = RadixCiphertext::from_blocks(lsb_blocks);
 
+            // subtract offset (if necessary)
+            if (offset.abs() as u64) > 0 {
+                lut_combined =
+                    server_key.scalar_sub_parallelized(&lut_combined, offset.abs() as u64);
+            }
             // l2 = lsb
             // Multiply MSBs and LSBs
             server_key.mul_parallelized(&lut_combined, &lsb_extended)
@@ -379,6 +391,7 @@ fn main() {
         &luts,
         wave_depth,
         &wopbs_key,
+        0_i32,
         &server_key,
     );
     let lut_sqrt_bior: u64 = client_key.decrypt(&square_ct_bior);
@@ -438,15 +451,43 @@ fn main() {
     let lut_inv_quant: u64 = client_key.decrypt(&inverse_ct_quant);
     println!("Scaled Inverse (Quantized LUT) time: {:?}", lut_time_quant);
 
+    let (lsb_1, _msb_1) = bior(
+        "./data/bior_lut_reciprocal_16.json",
+        wave_depth as u8,
+        bit_width as u8,
+    );
+    let (lsb_2, _msb_2) = bior(
+        "./data/bior_lut_reciprocal_16_2.json",
+        wave_depth as u8,
+        bit_width as u8,
+    );
+    let luts = vec![&lsb_1, &lsb_2];
+
+    // 2.4 Square root using Biorthogonal
+    let (inverse_ct_bior, lut_time_bior) = ct_lut_eval_bior(
+        x_ct.clone(),
+        bit_width,
+        nb_blocks,
+        &luts,
+        wave_depth,
+        &wopbs_key,
+        0_i32,
+        &server_key,
+    );
+    let lut_inverse_bior: u64 = client_key.decrypt(&inverse_ct_bior);
+    println!("Scaled Inverse (Bior LUT) time: {:?}", lut_time_bior);
+
     println!(
-        "--- LUT: {:?}, DWT LUT: {:?}, Quant LUT: {:?},\
-         \n--- unq: LUT: {:?}, DWT LUT: {:?}, Quant LUT {:?}",
+        "--- LUT: {:?}, DWT LUT: {:?}, Quant LUT: {:?}, Bior LUT: {:?}\
+         \n--- unq: LUT: {:?}, DWT LUT: {:?}, Quant LUT {:?}, Bior LUT: {:?}",
         lut_inv,
         dwt_lut_inv,
         lut_inv_quant,
+        lut_inverse_bior,
         unquantize(lut_inv, precision, bit_width as u8),
         unquantize(dwt_lut_inv, precision, bit_width as u8),
         unquantize(lut_inv_quant, precision, bit_width as u8),
+        unquantize(lut_inverse_bior, precision, bit_width as u8),
     );
 
     // 3.1 log2(x) using LUT

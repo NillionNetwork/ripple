@@ -323,7 +323,7 @@ fn main() {
         start.elapsed().as_secs_f64()
     );
 
-    let x = quantize(4.0, precision, bit_width as u8);
+    let x = quantize(2.0, precision, bit_width as u8);
     let x_ct = client_key.encrypt(x);
     let y_ct = client_key.encrypt(2_u64.pow(bit_width as u32) - 5_u64);
     // let y_ct = client_key.encrypt(5_u64);
@@ -531,15 +531,43 @@ fn main() {
     let lut_log_quant: u64 = client_key.decrypt(&log_ct_quant);
     println!("log2(x) (Quantized LUT) time: {:?}", lut_time_quant);
 
+    let (lsb_1, _msb_1) = bior(
+        "./data/bior_lut_log_16.json",
+        wave_depth as u8,
+        bit_width as u8,
+    );
+    let (lsb_2, _msb_2) = bior(
+        "./data/bior_lut_log_16_2.json",
+        wave_depth as u8,
+        bit_width as u8,
+    );
+    let luts = vec![&lsb_1, &lsb_2];
+
+    // 3.4 log2(x) using Biorthogonal
+    let (log_ct_bior, lut_time_bior) = ct_lut_eval_bior(
+        x_ct.clone(),
+        bit_width,
+        nb_blocks,
+        &luts,
+        wave_depth,
+        &wopbs_key,
+        0_i32,
+        &server_key,
+    );
+    let lut_log_bior: u64 = client_key.decrypt(&log_ct_bior);
+    println!("log2(x) (Bior LUT) time: {:?}", lut_time_bior);
+
     println!(
-        "--- LUT: {:?}, DWT LUT: {:?}, Quant LUT: {:?},\
-         \n--- unq: LUT: {:?}, DWT LUT: {:?}, Quant LUT {:?}",
+        "--- LUT: {:?}, DWT LUT: {:?}, Quant LUT: {:?}, Bior LUT: {:?}\
+         \n--- unq: LUT: {:?}, DWT LUT: {:?}, Quant LUT {:?}, Bior LUT: {:?}",
         lut_log,
         dwt_lut_log,
         lut_log_quant,
+        lut_log_bior,
         unquantize(lut_log, precision, bit_width as u8),
         unquantize(dwt_lut_log, precision, bit_width as u8),
         unquantize(lut_log_quant, precision, bit_width as u8),
+        unquantize(lut_log_bior, precision, bit_width as u8),
     );
 
     // // 4.1 sigmoid(x) using LUT

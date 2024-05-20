@@ -119,49 +119,59 @@ pub fn means_and_stds(dataset: &[Vec<f64>], num_features: usize) -> (Vec<f64>, V
 pub fn haar(
     input_precision: u8,
     output_precision: u8,
+    max_bit: u8,
     bit_width: u8,
     f: &dyn Fn(f64) -> f64,
 ) -> (Vec<u64>, Vec<u64>) {
     let table_size = bit_width >> 1;
-    let max = 1 << bit_width;
+    let max = 1 << max_bit;
     let mut data = Vec::new();
+    let mut negatives = false;
     for x in 0..max {
         let x = unquantize(x, input_precision, bit_width);
-        // data.push(x.sqrt());
         data.push(f(x));
+        if x < 0.0 {
+            negatives = true;
+        }
     }
-    data.rotate_right(1 << (bit_width - 1));
+    if negatives {
+        data.rotate_right(1 << (max_bit - 1));
+    }
     transform(
         &mut data,
         Operation::Forward,
         &Haar::new(),
-        (bit_width - table_size) as usize,
+        (max_bit - table_size) as usize,
     );
     let coef_len = 1 << table_size;
-    let scalar = 2f64.powf(-((bit_width - table_size) as f64) / 2f64);
+    let scalar = 2f64.powf(-((max_bit - table_size) as f64) / 2f64);
     let mut haar: Vec<u64> = data
         .get(0..coef_len)
         .unwrap()
         .iter()
         .map(|x| quantize(scalar * x, output_precision, bit_width))
         .collect();
-    haar.rotate_right(1 << (table_size - 1));
+    if negatives {
+        haar.rotate_right(1 << (table_size - 1));
+    }
     let mask = (1 << (bit_width / 2)) - 1;
     let lsb = haar.iter().map(|x| x & mask).collect();
     let msb = haar.iter().map(|x| x >> (bit_width / 2) & mask).collect();
     (lsb, msb)
 }
 
-pub fn bior(table_size: u8, bit_width: u8) -> (Vec<u64>, Vec<u64>) {
+pub fn bior(lut_file: &str, table_size: u8, bit_width: u8) -> (Vec<u64>, Vec<u64>) {
     // Read Biorthogonal LUT
-    let reader = BufReader::new(File::open("./data/bior_lut.json").unwrap());
+    let reader = BufReader::new(File::open(lut_file).unwrap());
     let bior_lut: HashMap<u64, u64> = serde_json::from_reader(reader).unwrap();
 
     // Convert to 1-D vector
-    let mut bior_lut_vec = bior_lut.into_values().collect::<Vec<_>>();
+    let mut bior_lut_vec = vec![];
+    for i in 0..(2u64.pow(table_size as u32)) {
+        bior_lut_vec.push(bior_lut[&(i as u64)]);
+    }
 
     // Break into two LUTs
-    bior_lut_vec.rotate_right(1 << (table_size - 1));
     let mask = (1 << (bit_width / 2)) - 1;
     let lsb = bior_lut_vec.iter().map(|x| x & mask).collect();
     let msb = bior_lut_vec

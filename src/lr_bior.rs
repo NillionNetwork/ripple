@@ -50,7 +50,7 @@ fn main() {
     let j = 8; // wave depth
     assert!(precision <= bit_width / 2);
 
-    let (lut_lsb, lut_msb) = bior(lut_bit_width, bit_width);
+    let (lut_lsb, lut_msb) = bior("data/bior_lut.json", lut_bit_width, bit_width);
 
     // Number of blocks for full precision
     let nb_blocks = bit_width >> 1;

@@ -54,7 +54,7 @@ fn main() {
     fn my_sigmoid(value: f64) -> f64 {
         1f64 / (1f64 + (-value).exp())
     }
-    let (lut_lsb, _lut_msb) = haar(precision * 2, precision, bit_width, &my_sigmoid);
+    let (lut_lsb, _lut_msb) = haar(precision * 2, precision, bit_width, bit_width, &my_sigmoid);
 
     // Number of blocks per ciphertext
     let nb_blocks = bit_width >> 2;

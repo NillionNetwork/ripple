@@ -23,7 +23,7 @@ fn main() {
     fn my_sigmoid(value: f64) -> f64 {
         1f64 / (1f64 + (-value).exp())
     }
-    let (lut_lsb, _lut_msb) = haar(precision * 2, table_size, bit_width, &my_sigmoid);
+    let (lut_lsb, _lut_msb) = haar(precision * 2, table_size, bit_width, bit_width, &my_sigmoid);
     println!("{:?}", lut_lsb);
     // println!("{:?}", lut_msb);
     println!("End Haar");

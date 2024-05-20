@@ -11,7 +11,8 @@ fn main() {
     fn my_sigmoid(value: f64) -> f64 {
         1f64 / (1f64 + (-value).exp())
     }
-    let (lut_haar_lsb, lut_haar_msb) = haar(precision, precision, bit_width, &my_sigmoid);
+    let (lut_haar_lsb, lut_haar_msb) =
+        haar(precision, precision, bit_width, bit_width, &my_sigmoid);
 
     let mut diff_quant = Vec::new();
     let mut diff_haar = Vec::new();

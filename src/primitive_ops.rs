@@ -150,11 +150,6 @@ fn ct_lut_eval_haar_bounded(
     );
     let abs = server_key.mul_parallelized(&sign, &ct);
 
-    println!(
-        "Absolute value done in {:?} sec.",
-        start.elapsed().as_secs_f64()
-    );
-
     // Truncate x
     let tmp = (precision as usize) + (integer_size as usize);
     let x_truncated_blocks = &abs.clone().into_blocks()[(tmp - (bit_width >> 1)) >> 1..tmp >> 1];
@@ -199,6 +194,51 @@ fn ct_lut_eval_haar_bounded(
     (haar_ct, start.elapsed().as_secs_f64())
 }
 
+/*
+reductions for 32 bits
+sqrt: 20 bits
+reciprocal: 16 bits
+log: 20 bits
+inverse sqrt: 16 bits
+erf: 18 bits
+sigmoid: 16 bits
+Truncation amount = 8 bits
+tanh: 18 bits
+Truncation amount = 6 bits
+
+reductions for 24 bits
+sqrt: 12 bits
+Truncation amount = 6 bits
+log: 15 bits
+Truncation amount = 3 bits
+inverse sqrt: 12 bits
+Truncation amount = 6 bits
+erf: 14 bits
+Truncation amount = 4 bits
+sigmoid: 12 bits
+Truncation amount = 6 bits
+tanh: 14 bits
+Truncation amount = 4 bits
+reciprocal: 12 bits
+Truncation amount = 6 bits
+
+reduction for 16 bits
+sqrt: 10 bits
+Truncation amount = 2 bits
+log: 10 bits
+Truncation amount = 2 bits
+inverse sqrt: 8 bits
+Truncation amount = 4 bits
+erf: 9 bits
+Truncation amount = 3 bits
+sigmoid: 8 bits
+Truncation amount = 4 bits
+tanh: 9 bits
+Truncation amount = 3 bits
+reciprocal: 8 bits
+Truncation amount = 4 bits
+*/
+
 fn ct_lut_eval_bior(
     ct: RadixCiphertext,
     bit_width: usize,
@@ -241,7 +281,13 @@ fn ct_lut_eval_bior(
             // Eval LUT over MSBs
             let lut_lsb = wopbs_key.wopbs(&msb, &encoded_luts[0]);
             let mut lut_lsb_blocks = wopbs_key.keyswitch_to_pbs_params(&lut_lsb).into_blocks();
-
+            // Eval additional LUT if output bit-width is greater than
+            // wave_depth bits
+            if encoded_luts.len() > 2 {
+                let lut_msb = wopbs_key.wopbs(&msb, &encoded_luts[2]);
+                let lut_msb_blocks = wopbs_key.keyswitch_to_pbs_params(&lut_msb).into_blocks();
+                lut_lsb_blocks.extend(lut_msb_blocks);
+            }
             // Pad LUT output and LSB by 6 bits to avoid overflows
             let padding_ct_block = server_key
                 .create_trivial_zero_radix::<RadixCiphertext>(3)
@@ -270,7 +316,13 @@ fn ct_lut_eval_bior(
             // Eval LUT over MSBs
             let lut_lsb = wopbs_key.wopbs(&msb, &encoded_luts[1]);
             let mut lut_lsb_blocks = wopbs_key.keyswitch_to_pbs_params(&lut_lsb).into_blocks();
-
+            // Eval additional LUT if output bit-width is greater than
+            // wave_depth bits
+            if encoded_luts.len() > 2 {
+                let lut_msb = wopbs_key.wopbs(&msb, &encoded_luts[3]);
+                let lut_msb_blocks = wopbs_key.keyswitch_to_pbs_params(&lut_msb).into_blocks();
+                lut_lsb_blocks.extend(lut_msb_blocks);
+            }
             // Pad LUT output and LSB by 6 bits to avoid overflows
             let padding_ct_block = server_key
                 .create_trivial_zero_radix::<RadixCiphertext>(3)
@@ -403,11 +455,11 @@ fn main() {
         lut_prod,
         dwt_lut_prod,
         lut_prod_quant,
-        lut_sqrt_bior,
+        lut_sqrt_bior >> 2,
         unquantize(lut_prod, precision, bit_width as u8),
         unquantize(dwt_lut_prod, precision, bit_width as u8),
         unquantize(lut_prod_quant, precision, bit_width as u8),
-        unquantize(lut_sqrt_bior, precision, bit_width as u8),
+        unquantize(lut_sqrt_bior >> 2, precision, bit_width as u8),
     );
 
     // 2.1 1000/x using LUT
@@ -463,7 +515,7 @@ fn main() {
     );
     let luts = vec![&lsb_1, &lsb_2];
 
-    // 2.4 Square root using Biorthogonal
+    // 2.4 1000/x using Biorthogonal
     let (inverse_ct_bior, lut_time_bior) = ct_lut_eval_bior(
         x_ct.clone(),
         bit_width,
@@ -483,11 +535,11 @@ fn main() {
         lut_inv,
         dwt_lut_inv,
         lut_inv_quant,
-        lut_inverse_bior,
+        lut_inverse_bior >> 4,
         unquantize(lut_inv, precision, bit_width as u8),
         unquantize(dwt_lut_inv, precision, bit_width as u8),
         unquantize(lut_inv_quant, precision, bit_width as u8),
-        unquantize(lut_inverse_bior, precision, bit_width as u8),
+        unquantize(lut_inverse_bior >> 4, precision, bit_width as u8),
     );
 
     // 3.1 log2(x) using LUT
@@ -563,11 +615,11 @@ fn main() {
         lut_log,
         dwt_lut_log,
         lut_log_quant,
-        lut_log_bior,
+        lut_log_bior >> 2,
         unquantize(lut_log, precision, bit_width as u8),
         unquantize(dwt_lut_log, precision, bit_width as u8),
         unquantize(lut_log_quant, precision, bit_width as u8),
-        unquantize(lut_log_bior, precision, bit_width as u8),
+        unquantize(lut_log_bior >> 2, precision, bit_width as u8),
     );
 
     // // 4.1 sigmoid(x) using LUT
@@ -633,7 +685,7 @@ fn main() {
         false,
         // &client_key,
     );
-    let dwt_sig_bounded: u64 = client_key.decrypt(&sig_ct_haar);
+    // let dwt_sig_bounded: u64 = client_key.decrypt(&sig_ct_haar);
     println!("Sigmoid (Haar) time (bounded): {:?}", dwt_time);
 
     // 4.3 sigmoid(x) using Quantized LUT
@@ -660,17 +712,43 @@ fn main() {
         lut_time_quant_pt1 + lut_time_quant_pt2
     );
 
+    let (lsb_1, _msb_1) = bior(
+        "./data/bior_lut_sigmoid_16.json",
+        wave_depth as u8,
+        bit_width as u8,
+    );
+    let (lsb_2, _msb_2) = bior(
+        "./data/bior_lut_sigmoid_16_2.json",
+        wave_depth as u8,
+        bit_width as u8,
+    );
+    let luts = vec![&lsb_1, &lsb_2];
+
+    // 4.4 sigmoid(x) using Biorthogonal
+    let (sig_ct_bior, lut_time_bior) = ct_lut_eval_bior(
+        x_ct.clone(),
+        bit_width,
+        nb_blocks,
+        &luts,
+        wave_depth,
+        &wopbs_key,
+        -128_i32,
+        &server_key,
+    );
+    let lut_sig_bior: u64 = client_key.decrypt(&sig_ct_bior);
+    println!("Sigmoid (Bior LUT) time: {:?}", lut_time_bior);
+
     println!(
-        "--- LUT: {:?}, DWT LUT: {:?}, DWT LUT (Bounded): {:?}, Quant LUT: {:?}, \
-         \n--- unq: LUT: {:?}, DWT LUT: {:?}, DWT LUT (Bounded): {:?}, Quant LUT {:?}",
+        "--- LUT: {:?}, DWT LUT: {:?}, Quant LUT: {:?}, Bior LUT: {:?}\
+         \n--- unq: LUT: {:?}, DWT LUT: {:?}, Quant LUT {:?}, Bior LUT: {:?}",
         lut_sig,
         dwt_lut_sig,
-        dwt_sig_bounded,
         lut_sig_quant,
+        lut_sig_bior >> 4,
         unquantize(lut_sig, precision, bit_width as u8),
         unquantize(dwt_lut_sig, precision, bit_width as u8),
-        unquantize(dwt_sig_bounded, precision, bit_width as u8),
         unquantize(lut_sig_quant, precision, bit_width as u8),
+        unquantize(lut_sig_bior >> 4, precision, bit_width as u8),
     );
 
     // 5.1 1000/sqrt(x) using LUT
@@ -739,15 +817,43 @@ fn main() {
         lut_time_quant_pt1 + lut_time_quant_pt2
     );
 
+    let (lsb_1, _msb_1) = bior(
+        "./data/bior_lut_inv_sqrt_16.json",
+        wave_depth as u8,
+        bit_width as u8,
+    );
+    let (lsb_2, _msb_2) = bior(
+        "./data/bior_lut_inv_sqrt_16_2.json",
+        wave_depth as u8,
+        bit_width as u8,
+    );
+    let luts = vec![&lsb_1, &lsb_2];
+
+    // 5.4 1000/sqrt(x) using Biorthogonal
+    let (inv_sqrt_ct_bior, lut_time_bior) = ct_lut_eval_bior(
+        x_ct.clone(),
+        bit_width,
+        nb_blocks,
+        &luts,
+        wave_depth,
+        &wopbs_key,
+        0_i32,
+        &server_key,
+    );
+    let lut_inv_sqrt_bior: u64 = client_key.decrypt(&inv_sqrt_ct_bior);
+    println!("Inverse Square Root (Bior LUT) time: {:?}", lut_time_bior);
+
     println!(
-        "--- LUT: {:?}, DWT LUT: {:?}, Quant LUT: {:?},\
-         \n--- unq: LUT: {:?}, DWT LUT: {:?}, Quant LUT {:?}",
+        "--- LUT: {:?}, DWT LUT: {:?}, Quant LUT: {:?}, Bior LUT: {:?}\
+         \n--- unq: LUT: {:?}, DWT LUT: {:?}, Quant LUT {:?}, Bior LUT: {:?}",
         lut_inv_sqrt,
         dwt_inv_sqrt,
         lut_inv_sqrt_quant,
+        lut_inv_sqrt_bior >> 4,
         unquantize(lut_inv_sqrt, precision, bit_width as u8),
         unquantize(dwt_inv_sqrt, precision, bit_width as u8),
         unquantize(lut_inv_sqrt_quant, precision, bit_width as u8),
+        unquantize(lut_inv_sqrt_bior >> 4, precision, bit_width as u8),
     );
 
     // 6.1 ERF using LUT
@@ -788,15 +894,43 @@ fn main() {
     let lut_erf_quant: u64 = client_key.decrypt(&erf_ct_quant);
     println!("ERF (Quantized LUT) time: {:?}", lut_time_quant);
 
+    let (lsb_1, _msb_1) = bior(
+        "./data/bior_lut_erf_16.json",
+        wave_depth as u8,
+        bit_width as u8,
+    );
+    let (lsb_2, _msb_2) = bior(
+        "./data/bior_lut_erf_16_2.json",
+        wave_depth as u8,
+        bit_width as u8,
+    );
+    let luts = vec![&lsb_1, &lsb_2];
+
+    // 6.4 ERF using Biorthogonal
+    let (erf_ct_bior, lut_time_bior) = ct_lut_eval_bior(
+        x_ct.clone(),
+        bit_width,
+        nb_blocks,
+        &luts,
+        wave_depth,
+        &wopbs_key,
+        -128_i32,
+        &server_key,
+    );
+    let lut_erf_bior: u64 = client_key.decrypt(&erf_ct_bior);
+    println!("ERF (Bior LUT) time: {:?}", lut_time_bior);
+
     println!(
-        "--- LUT: {:?}, DWT LUT: {:?}, Quant LUT: {:?},\
-         \n--- unq: LUT: {:?}, DWT LUT: {:?}, Quant LUT {:?}",
+        "--- LUT: {:?}, DWT LUT: {:?}, Quant LUT: {:?}, Bior LUT: {:?}\
+         \n--- unq: LUT: {:?}, DWT LUT: {:?}, Quant LUT {:?}, Bior LUT: {:?}",
         lut_erf,
         dwt_erf,
         lut_erf_quant,
+        lut_erf_bior >> 2,
         unquantize(lut_erf, precision, bit_width as u8),
         unquantize(dwt_erf, precision, bit_width as u8),
         unquantize(lut_erf_quant, precision, bit_width as u8),
+        unquantize(lut_erf_bior >> 2, precision, bit_width as u8),
     );
 
     // 7.1 tanh(x) using LUT
@@ -837,7 +971,7 @@ fn main() {
         true,
         // &client_key,
     );
-    let dwt_tanh_bounded: u64 = client_key.decrypt(&tanh_ct_haar);
+    // let dwt_tanh_bounded: u64 = client_key.decrypt(&tanh_ct_haar);
     println!("Tanh (Haar) time (bounded): {:?}", dwt_time);
 
     // 7.3 tanh(x) using Quantized LUT
@@ -853,37 +987,42 @@ fn main() {
     let lut_tanh_quant: u64 = client_key.decrypt(&tanh_ct_quant);
     println!("Tanh (Quantized LUT) time: {:?}", lut_time_quant);
 
+    let (lsb_1, _msb_1) = bior(
+        "./data/bior_lut_tanh_16.json",
+        wave_depth as u8,
+        bit_width as u8,
+    );
+    let (lsb_2, _msb_2) = bior(
+        "./data/bior_lut_tanh_16_2.json",
+        wave_depth as u8,
+        bit_width as u8,
+    );
+    let luts = vec![&lsb_1, &lsb_2];
+
+    // 7.4 tanh(x) using Biorthogonal
+    let (tanh_ct_bior, lut_time_bior) = ct_lut_eval_bior(
+        x_ct.clone(),
+        bit_width,
+        nb_blocks,
+        &luts,
+        wave_depth,
+        &wopbs_key,
+        -128_i32,
+        &server_key,
+    );
+    let lut_tanh_bior: u64 = client_key.decrypt(&tanh_ct_bior);
+    println!("Tanh (Bior LUT) time: {:?}", lut_time_bior);
+
     println!(
-        "--- LUT: {:?}, DWT LUT: {:?}, DWT LUT (Bounded): {:?}, Quant LUT: {:?}, \
-         \n--- unq: LUT: {:?}, DWT LUT: {:?}, DWT LUT (Bounded): {:?}, Quant LUT {:?}",
+        "--- LUT: {:?}, DWT LUT: {:?}, Quant LUT: {:?}, Bior LUT: {:?}\
+         \n--- unq: LUT: {:?}, DWT LUT: {:?}, Quant LUT {:?}, Bior LUT: {:?}",
         lut_tanh,
         dwt_tanh,
-        dwt_tanh_bounded,
         lut_tanh_quant,
+        lut_tanh_bior >> 2,
         unquantize(lut_tanh, precision, bit_width as u8),
         unquantize(dwt_tanh, precision, bit_width as u8),
-        unquantize(dwt_tanh_bounded, precision, bit_width as u8),
         unquantize(lut_tanh_quant, precision, bit_width as u8),
+        unquantize(lut_tanh_bior >> 2, precision, bit_width as u8),
     );
-
-    // let x_ct = client_key.encrypt(5_u64);
-    // let x_neg_ct = client_key.encrypt(2_u64.pow(bit_width as u32)-5_u64);
-
-    // let start = Instant::now();
-    // let msb_block = vec![x_ct.blocks()[nb_blocks-1].clone(); 1];
-    // let msb_radix = RadixCiphertext::from_blocks(msb_block);
-    // let msb = server_key.scalar_right_shift_parallelized(&msb_radix, 1);
-    // let sign_extract_time = start.elapsed().as_secs_f64();
-    // let msb_dec: u64 = client_key.decrypt(&msb);
-    // println!("Sign Extraction time: {:?}", sign_extract_time);
-    // println!("Sign: {:?}", msb_dec);
-
-    // let start = Instant::now();
-    // let msb_block = vec![x_neg_ct.blocks()[nb_blocks-1].clone(); 1];
-    // let msb_radix = RadixCiphertext::from_blocks(msb_block);
-    // let msb = server_key.scalar_right_shift_parallelized(&msb_radix, 1);
-    // let sign_extract_time = start.elapsed().as_secs_f64();
-    // let msb_dec: u64 = client_key.decrypt(&msb);
-    // println!("Sign Extraction time: {:?}", sign_extract_time);
-    // println!("Sign: {:?}", msb_dec);
 }

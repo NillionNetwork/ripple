@@ -29,13 +29,9 @@ fn main() {
         // Server computation
         let mut prediction = bias_int;
         for (&s, &w) in sample.iter().zip(weights_int.iter()) {
-            println!("s: {:?}", s);
-            println!("weight: {:?}", w);
             prediction = add(prediction, mul(w, s, bit_width), bit_width);
-            println!("MAC result: {:?}", prediction);
         }
         let probability = sigmoid(prediction, 2 * precision, precision, bit_width);
-        println!("probability {probability}");
         let class = (probability > quantize(0.5, precision, bit_width)) as usize;
 
         // Client computation
@@ -51,5 +47,4 @@ fn main() {
 
     let accuracy = (total as f64 / dataset.len() as f64) * 100.0;
     println!("Accuracy {accuracy}%");
-    println!("precision: {precision}, bit_width: {bit_width}");
 }

@@ -2,7 +2,7 @@ use std::time::Instant;
 
 use num_integer::Roots;
 use rayon::prelude::*;
-use ripple::common::{self, ct_lut_eval_no_gen};
+use ripple::common::{self, ct_lut_eval_quantized_no_gen};
 use tfhe::{
     integer::{
         gen_keys_radix, wopbs::*, IntegerCiphertext, IntegerRadixCiphertext, RadixCiphertext,
@@ -12,15 +12,6 @@ use tfhe::{
         PARAM_MESSAGE_2_CARRY_2_KS_PBS,
     },
 };
-
-/// d(x, y) = sqrt( sum((xi - yi)^2) )
-// fn euclidean(x: &[u32], y: &[u32]) -> f32 {
-//     x.iter()
-//         .zip(y.iter())
-//         .map(|(&xi, &yi)| (xi - yi).pow(2) as f32)
-//         .sum::<f32>()
-//         .sqrt()
-// }
 
 fn main() {
     let data = common::read_csv("data/euclidean.csv");
@@ -70,7 +61,7 @@ fn main() {
     for block in &mut dummy_blocks {
         block.degree = Degree::new(3);
     }
-    dummy = RadixCiphertext::from_blocks(dummy_blocks);
+    dummy = RadixCiphertext::from_blocks(dummy_blocks[0..(nb_blocks as usize >> 1)].to_vec());
     let sqrt_lut = wopbs_key.generate_lut_radix(&dummy, |x: u64| x.sqrt());
     let div_lut = wopbs_key.generate_lut_radix(&dummy, |x: u64| x / (num_iter as u64));
     println!(
@@ -88,10 +79,6 @@ fn main() {
         .into_par_iter()
         .map(|i| {
             let ys = &data[i];
-
-            // let distance = euclidean(xs, ys);
-            // println!("{}) Ptxt Euclidean distance: {}", i, distance);
-
             // Compute the encrypted euclidean distance
 
             let start = Instant::now();
@@ -115,8 +102,13 @@ fn main() {
             );
             // println!("euclid_squared_enc degree: {:?}", euclid_squared_enc.blocks()[0].degree);
             println!("{}) Starting computing square root", i);
-            let distance_enc =
-                ct_lut_eval_no_gen(euclid_squared_enc, &wopbs_key, &server_key, &sqrt_lut);
+            let distance_enc = ct_lut_eval_quantized_no_gen(
+                euclid_squared_enc,
+                nb_blocks,
+                &wopbs_key,
+                &server_key,
+                &sqrt_lut,
+            );
             println!(
                 "{}) Finished computing square root in {:?} sec.",
                 i,
@@ -133,7 +125,8 @@ fn main() {
         );
 
     // println!("sum_dists degree: {:?}", sum_dists.blocks()[0].degree);
-    let dists_mean_enc = ct_lut_eval_no_gen(sum_dists, &wopbs_key, &server_key, &div_lut);
+    let dists_mean_enc =
+        ct_lut_eval_quantized_no_gen(sum_dists, nb_blocks, &wopbs_key, &server_key, &div_lut);
     println!(
         "Finished computing everything in {:?} sec.",
         bench_start.elapsed().as_secs_f64()

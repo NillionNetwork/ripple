@@ -40,6 +40,10 @@ name = "lr_lut"
 path = "src/lr_lut.rs"
 
 [[bin]]
+name = "lr_lut_quantized"
+path = "src/lr_lut_quantized.rs"
+
+[[bin]]
 name = "lr_haar_ptxt"
 path = "src/lr_haar_ptxt.rs"
 
@@ -78,6 +82,18 @@ path = "src/correlation_lut.rs"
 [[bin]]
 name = "euclidean"
 path = "src/euclidean.rs"
+
+[[bin]]
+name = "euclidean_quantized"
+path = "src/euclidean_quantized.rs"
+
+[[bin]]
+name = "euclidean_haar"
+path = "src/euclidean_haar.rs"
+
+[[bin]]
+name = "euclidean_bior"
+path = "src/euclidean_bior.rs"
 
 # Primitive Timings
 

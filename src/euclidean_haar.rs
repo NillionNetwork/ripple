@@ -1,8 +1,7 @@
 use std::time::Instant;
 
-use num_integer::Roots;
 use rayon::prelude::*;
-use ripple::common::{self, ct_lut_eval_no_gen};
+use ripple::common::*;
 use tfhe::{
     integer::{
         gen_keys_radix, wopbs::*, IntegerCiphertext, IntegerRadixCiphertext, RadixCiphertext,
@@ -13,23 +12,22 @@ use tfhe::{
     },
 };
 
-/// d(x, y) = sqrt( sum((xi - yi)^2) )
-// fn euclidean(x: &[u32], y: &[u32]) -> f32 {
-//     x.iter()
-//         .zip(y.iter())
-//         .map(|(&xi, &yi)| (xi - yi).pow(2) as f32)
-//         .sum::<f32>()
-//         .sqrt()
-// }
+fn my_sqrt(value: f64) -> f64 {
+    value.sqrt()
+}
+
+fn my_div(value: f64) -> f64 {
+    value / 3_f64
+}
 
 fn main() {
-    let data = common::read_csv("data/euclidean.csv");
+    let data = read_csv("data/euclidean.csv");
     let xs = &data[0];
     let num_iter = 3;
 
     // ------- Client side ------- //
     let bit_width = 16;
-
+    let precision = 6;
     // Number of blocks per ciphertext
     let nb_blocks = bit_width / 2;
     println!(
@@ -54,7 +52,7 @@ fn main() {
     let start = Instant::now();
     let xs_enc: Vec<_> = xs
         .par_iter() // Use par_iter() for parallel iteration
-        .map(|&x| client_key.encrypt(x))
+        .map(|&x| client_key.encrypt(quantize(x as f64, precision, bit_width as u8)))
         .collect();
     println!(
         "Encryption done in {:?} sec.",
@@ -64,15 +62,33 @@ fn main() {
     // ------- Server side ------- //
     let lut_gen_start = Instant::now();
     println!("Generating LUT.");
-    let mut dummy: RadixCiphertext = server_key.create_trivial_radix(2_u64, (nb_blocks).into());
-    dummy = wopbs_key.keyswitch_to_wopbs_params(&server_key, &dummy);
-    let mut dummy_blocks = dummy.clone().into_blocks().to_vec();
+    let dummy: RadixCiphertext = server_key.create_trivial_radix(0_u64, nb_blocks >> 1);
+    let mut dummy_blocks = dummy.into_blocks().to_vec();
     for block in &mut dummy_blocks {
         block.degree = Degree::new(3);
     }
-    dummy = RadixCiphertext::from_blocks(dummy_blocks);
-    let sqrt_lut = wopbs_key.generate_lut_radix(&dummy, |x: u64| x.sqrt());
-    let div_lut = wopbs_key.generate_lut_radix(&dummy, |x: u64| x / (num_iter as u64));
+    let dummy = RadixCiphertext::from_blocks(dummy_blocks);
+    let dummy = wopbs_key.keyswitch_to_wopbs_params(&server_key, &dummy);
+
+    let (haar_lsb, haar_msb) = haar(
+        precision,
+        precision,
+        bit_width as u8,
+        bit_width as u8,
+        &my_sqrt,
+    );
+    let haar_lsb_lut_sqrt = wopbs_key.generate_lut_radix(&dummy, |x: u64| eval_lut(x, &haar_lsb));
+    let haar_msb_lut_sqrt = wopbs_key.generate_lut_radix(&dummy, |x: u64| eval_lut(x, &haar_msb));
+    let (haar_lsb, haar_msb) = haar(
+        precision,
+        precision,
+        bit_width as u8,
+        bit_width as u8,
+        &my_div,
+    );
+    let haar_lsb_lut_div = wopbs_key.generate_lut_radix(&dummy, |x: u64| eval_lut(x, &haar_lsb));
+    let haar_msb_lut_div = wopbs_key.generate_lut_radix(&dummy, |x: u64| eval_lut(x, &haar_msb));
+
     println!(
         "LUT generation done in {:?} sec.",
         lut_gen_start.elapsed().as_secs_f64()
@@ -88,9 +104,6 @@ fn main() {
         .into_par_iter()
         .map(|i| {
             let ys = &data[i];
-
-            // let distance = euclidean(xs, ys);
-            // println!("{}) Ptxt Euclidean distance: {}", i, distance);
 
             // Compute the encrypted euclidean distance
 
@@ -115,8 +128,14 @@ fn main() {
             );
             // println!("euclid_squared_enc degree: {:?}", euclid_squared_enc.blocks()[0].degree);
             println!("{}) Starting computing square root", i);
-            let distance_enc =
-                ct_lut_eval_no_gen(euclid_squared_enc, &wopbs_key, &server_key, &sqrt_lut);
+            let distance_enc = ct_lut_eval_haar_no_gen(
+                euclid_squared_enc,
+                nb_blocks,
+                &wopbs_key,
+                &server_key,
+                &haar_lsb_lut_sqrt,
+                &haar_msb_lut_sqrt,
+            );
             println!(
                 "{}) Finished computing square root in {:?} sec.",
                 i,
@@ -133,13 +152,23 @@ fn main() {
         );
 
     // println!("sum_dists degree: {:?}", sum_dists.blocks()[0].degree);
-    let dists_mean_enc = ct_lut_eval_no_gen(sum_dists, &wopbs_key, &server_key, &div_lut);
+    let dists_mean_enc = ct_lut_eval_haar_no_gen(
+        sum_dists,
+        nb_blocks,
+        &wopbs_key,
+        &server_key,
+        &haar_lsb_lut_div,
+        &haar_msb_lut_div,
+    );
     println!(
         "Finished computing everything in {:?} sec.",
         bench_start.elapsed().as_secs_f64()
     );
+
     // ------- Client side ------- //
     let mean_distance: u64 = client_key.decrypt(&dists_mean_enc);
+    let mean_distance: f64 = unquantize(mean_distance, precision, bit_width as u8);
+
     println!(
         "Mean of {} Euclidean distances: {}",
         num_iter, mean_distance

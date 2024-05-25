@@ -248,7 +248,7 @@ pub fn quantized_table(
     (lsb, msb)
 }
 
-fn eval_lut(x: u64, lut_map: &Vec<u64>) -> u64 {
+pub fn eval_lut(x: u64, lut_map: &Vec<u64>) -> u64 {
     lut_map[x as usize]
 }
 

@@ -99,7 +99,7 @@ fn main() {
     for block in &mut dummy_blocks {
         block.degree = Degree::new(3);
     }
-    dummy = RadixCiphertext::from_blocks(dummy_blocks);
+    dummy = RadixCiphertext::from_blocks(dummy_blocks[0..(nb_blocks as usize >> 1)].to_vec());
     let sigmoid_lut = wopbs_key.generate_lut_radix(&dummy, |x: u64| {
         sigmoid(x, 2 * precision, precision, bit_width)
     });
@@ -124,8 +124,13 @@ fn main() {
                     let ct_prod = server_key.scalar_mul_parallelized(s, weight);
                     prediction = server_key.add_parallelized(&ct_prod, &prediction);
                 }
-                let probability =
-                    ct_lut_eval_no_gen(prediction, &wopbs_key, &server_key, &sigmoid_lut);
+                let probability = ct_lut_eval_quantized_no_gen(
+                    prediction,
+                    nb_blocks as usize,
+                    &wopbs_key,
+                    &server_key,
+                    &sigmoid_lut,
+                );
 
                 println!(
                     "Finished inference #{:?} in {:?} sec.",
@@ -144,7 +149,13 @@ fn main() {
             let ct_prod = server_key.scalar_mul_parallelized(s, weight);
             prediction = server_key.add_parallelized(&ct_prod, &prediction);
         }
-        let probability = ct_lut_eval_no_gen(prediction, &wopbs_key, &server_key, &sigmoid_lut);
+        let probability = ct_lut_eval_quantized_no_gen(
+            prediction,
+            nb_blocks as usize,
+            &wopbs_key,
+            &server_key,
+            &sigmoid_lut,
+        );
 
         println!(
             "Finished inference in {:?} sec.",

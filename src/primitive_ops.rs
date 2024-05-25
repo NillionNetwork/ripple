@@ -4,195 +4,12 @@ use libm::tanh;
 use ripple::common::*;
 use statrs::function::erf::erf;
 use tfhe::{
-    integer::{
-        gen_keys_radix, wopbs::*, IntegerCiphertext, IntegerRadixCiphertext, RadixCiphertext,
-        ServerKey,
-    },
+    integer::{gen_keys_radix, wopbs::*},
     shortint::parameters::{
-        parameters_wopbs_message_carry::WOPBS_PARAM_MESSAGE_2_CARRY_2_KS_PBS, Degree,
+        parameters_wopbs_message_carry::WOPBS_PARAM_MESSAGE_2_CARRY_2_KS_PBS,
         PARAM_MESSAGE_2_CARRY_2_KS_PBS,
     },
 };
-
-fn eval_lut(x: u64, lut_map: &Vec<u64>) -> u64 {
-    lut_map[x as usize]
-}
-
-fn ct_lut_eval(
-    ct: RadixCiphertext,
-    precision: u8,
-    bit_width: usize,
-    func: &dyn Fn(f64) -> f64,
-    wopbs_key: &WopbsKey,
-    server_key: &ServerKey,
-) -> (RadixCiphertext, f64) {
-    let func_lut = wopbs_key.generate_lut_radix(&ct, |x: u64| {
-        let x_unquantized = unquantize(x, precision, bit_width as u8);
-        quantize(func(x_unquantized), precision, bit_width as u8)
-    });
-    let start = Instant::now();
-    let ct_ks = wopbs_key.keyswitch_to_wopbs_params(server_key, &ct);
-    let mut lut_ct = wopbs_key.wopbs(&ct_ks, &func_lut);
-    lut_ct = wopbs_key.keyswitch_to_pbs_params(&lut_ct);
-    (lut_ct, start.elapsed().as_secs_f64())
-}
-
-fn ct_lut_eval_quantized(
-    ct: RadixCiphertext,
-    precision: u8,
-    bit_width: usize,
-    nb_blocks: usize,
-    func: &dyn Fn(f64) -> f64,
-    wopbs_key: &WopbsKey,
-    server_key: &ServerKey,
-) -> (RadixCiphertext, f64) {
-    let quant_blocks = &ct.clone().into_blocks()[0..(nb_blocks >> 1)];
-    let quantized_ct = RadixCiphertext::from_blocks(quant_blocks.to_vec());
-    let quantized_lut = wopbs_key.generate_lut_radix(&quantized_ct, |x: u64| {
-        let x_unquantized = unquantize(x, precision, (bit_width >> 1) as u8);
-        quantize(func(x_unquantized), precision, (bit_width >> 1) as u8)
-    });
-    let start = Instant::now();
-    let quant_blocks = &ct.into_blocks()[(nb_blocks >> 1)..nb_blocks];
-    let quantized_ct = RadixCiphertext::from_blocks(quant_blocks.to_vec());
-    let quantized_ct = wopbs_key.keyswitch_to_wopbs_params(server_key, &quantized_ct);
-    let quantized_ct = wopbs_key.wopbs(&quantized_ct, &quantized_lut);
-    (
-        wopbs_key.keyswitch_to_pbs_params(&quantized_ct),
-        start.elapsed().as_secs_f64(),
-    )
-}
-
-fn ct_lut_eval_haar(
-    ct: RadixCiphertext,
-    precision: u8,
-    bit_width: usize,
-    nb_blocks: usize,
-    func: &dyn Fn(f64) -> f64,
-    wopbs_key: &WopbsKey,
-    server_key: &ServerKey,
-) -> (RadixCiphertext, f64) {
-    let (haar_lsb, haar_msb) = haar(
-        precision,
-        precision,
-        bit_width as u8,
-        bit_width as u8,
-        &func,
-    );
-    let dummy: RadixCiphertext = server_key.create_trivial_radix(0_u64, nb_blocks >> 1);
-    let mut dummy_blocks = dummy.into_blocks().to_vec();
-    for block in &mut dummy_blocks {
-        block.degree = Degree::new(ct.blocks()[0].degree.get());
-    }
-    let dummy = RadixCiphertext::from_blocks(dummy_blocks);
-    let dummy = wopbs_key.keyswitch_to_wopbs_params(server_key, &dummy);
-
-    let haar_lsb_lut = wopbs_key.generate_lut_radix(&dummy, |x: u64| eval_lut(x, &haar_lsb));
-    let haar_msb_lut = wopbs_key.generate_lut_radix(&dummy, |x: u64| eval_lut(x, &haar_msb));
-
-    let start = Instant::now();
-    // Truncate x
-    let x_truncated_blocks = &ct.into_blocks()[(nb_blocks >> 1)..nb_blocks];
-    let x_truncated = RadixCiphertext::from_blocks(x_truncated_blocks.to_vec());
-    let x_truncated_ks = wopbs_key.keyswitch_to_wopbs_params(server_key, &x_truncated);
-
-    let (haar_lsb, haar_msb) = rayon::join(
-        || {
-            let haar_lsb = wopbs_key.wopbs(&x_truncated_ks, &haar_lsb_lut);
-            wopbs_key.keyswitch_to_pbs_params(&haar_lsb)
-        },
-        || {
-            let haar_msb = wopbs_key.wopbs(&x_truncated_ks, &haar_msb_lut);
-            wopbs_key.keyswitch_to_pbs_params(&haar_msb)
-        },
-    );
-    let mut lsb_blocks = haar_lsb.into_blocks();
-    lsb_blocks.extend(haar_msb.into_blocks());
-    let haar_ct = RadixCiphertext::from_blocks(lsb_blocks.to_vec());
-    (haar_ct, start.elapsed().as_secs_f64())
-}
-
-fn ct_lut_eval_haar_bounded(
-    ct: RadixCiphertext,
-    precision: u8,
-    bit_width: usize,
-    integer_size: u32,
-    nb_blocks: usize,
-    func: &dyn Fn(f64) -> f64,
-    wopbs_key: &WopbsKey,
-    server_key: &ServerKey,
-    is_symmetric: bool,
-) -> (RadixCiphertext, f64) {
-    let (haar_lsb, haar_msb) = haar(
-        precision,
-        precision,
-        precision + integer_size as u8,
-        bit_width as u8,
-        &func,
-    );
-
-    let dummy: RadixCiphertext = server_key.create_trivial_radix(0_u64, nb_blocks >> 1);
-    let mut dummy_blocks = dummy.into_blocks().to_vec();
-    for block in &mut dummy_blocks {
-        block.degree = Degree::new(ct.blocks()[0].degree.get());
-    }
-    let dummy = RadixCiphertext::from_blocks(dummy_blocks);
-    let dummy = wopbs_key.keyswitch_to_wopbs_params(server_key, &dummy);
-
-    let haar_lsb_lut = wopbs_key.generate_lut_radix(&dummy, |x: u64| eval_lut(x, &haar_lsb));
-    let haar_msb_lut = wopbs_key.generate_lut_radix(&dummy, |x: u64| eval_lut(x, &haar_msb));
-
-    let start = Instant::now();
-    let ltz = server_key.scalar_right_shift_parallelized(&ct, bit_width - 1);
-    let sign = server_key.sub_parallelized(
-        &server_key.create_trivial_radix(1, nb_blocks),
-        &server_key.scalar_left_shift_parallelized(&ltz, 1),
-    );
-    let abs = server_key.mul_parallelized(&sign, &ct);
-
-    // Truncate x
-    let tmp = (precision as usize) + (integer_size as usize);
-    let x_truncated_blocks = &abs.clone().into_blocks()[(tmp - (bit_width >> 1)) >> 1..tmp >> 1];
-    let x_truncated = RadixCiphertext::from_blocks(x_truncated_blocks.to_vec());
-    let x_truncated_ks = wopbs_key.keyswitch_to_wopbs_params(server_key, &x_truncated);
-
-    let (haar_lsb, haar_msb) = rayon::join(
-        || {
-            let haar_lsb = wopbs_key.wopbs(&x_truncated_ks, &haar_lsb_lut);
-            wopbs_key.keyswitch_to_pbs_params(&haar_lsb)
-        },
-        || {
-            let haar_msb = wopbs_key.wopbs(&x_truncated_ks, &haar_msb_lut);
-            wopbs_key.keyswitch_to_pbs_params(&haar_msb)
-        },
-    );
-    let mut lsb_blocks = haar_lsb.into_blocks();
-    lsb_blocks.extend(haar_msb.into_blocks());
-    let mut haar_ct = RadixCiphertext::from_blocks(lsb_blocks.to_vec());
-
-    // For non-symmetric (around zero) functions like Sigmoid.
-    if !is_symmetric {
-        // ltz = (msb == 1)
-        let precision_encoded =
-            server_key.create_trivial_radix(2_u64.pow(precision as u32), nb_blocks);
-        let ltz = server_key.mul_parallelized(&precision_encoded, &ltz);
-
-        // eval = sign * eval + ltz
-        let eval = server_key.add_parallelized(&server_key.mul_parallelized(&haar_ct, &sign), &ltz);
-        let check_value = 2_u64.pow(precision as u32 + integer_size);
-        let check = server_key.scalar_lt_parallelized(&abs, check_value); // abs < 2^{integer_size + precision}
-        let check = check.into_radix(nb_blocks, server_key);
-        // limit = 1 - ltz
-        let limit = server_key.sub_parallelized(&precision_encoded, &ltz);
-        // return limit + check * (eval - limit)
-        haar_ct = server_key.add_parallelized(
-            &limit,
-            &server_key.mul_parallelized(&check, &server_key.sub_parallelized(&eval, &limit)),
-        );
-    }
-
-    (haar_ct, start.elapsed().as_secs_f64())
-}
 
 /*
 reductions for 32 bits
@@ -238,114 +55,6 @@ Truncation amount = 3 bits
 reciprocal: 8 bits
 Truncation amount = 4 bits
 */
-
-fn ct_lut_eval_bior(
-    ct: RadixCiphertext,
-    bit_width: usize,
-    nb_blocks: usize,
-    luts: &Vec<&Vec<u64>>,
-    wave_depth: usize,
-    wopbs_key: &WopbsKey,
-    offset: i32,
-    server_key: &ServerKey,
-) -> (RadixCiphertext, f64) {
-    let nb_blocks_lsb = (bit_width - wave_depth) >> 1;
-    let dummy: RadixCiphertext = server_key.create_trivial_radix(0_u64, wave_depth >> 1);
-    let mut dummy_blocks = dummy.into_blocks().to_vec();
-    for block in &mut dummy_blocks {
-        block.degree = Degree::new(ct.blocks()[0].degree.get());
-    }
-    let dummy = RadixCiphertext::from_blocks(dummy_blocks);
-    let dummy = wopbs_key.keyswitch_to_wopbs_params(server_key, &dummy);
-    let encoded_luts = luts
-        .iter()
-        .map(|lut| wopbs_key.generate_lut_radix(&dummy, |x: u64| eval_lut(x, &lut.to_vec())))
-        .collect::<Vec<_>>();
-
-    let start = Instant::now();
-    // Split into wave_depth MSBs and n - wave_depth LSBs
-    let ct_blocks = &ct.into_blocks();
-    let (lsb, msb) = rayon::join(
-        || {
-            let prediction_blocks_lsb = &ct_blocks[0..nb_blocks_lsb];
-            RadixCiphertext::from_blocks(prediction_blocks_lsb.to_vec())
-        },
-        || {
-            let prediction_blocks_msb = &ct_blocks[nb_blocks_lsb..nb_blocks];
-            let prediction_msb = RadixCiphertext::from_blocks(prediction_blocks_msb.to_vec());
-            wopbs_key.keyswitch_to_wopbs_params(server_key, &prediction_msb)
-        },
-    );
-    let (output_1, output_2) = rayon::join(
-        || {
-            // Eval LUT over MSBs
-            let lut_lsb = wopbs_key.wopbs(&msb, &encoded_luts[0]);
-            let mut lut_lsb_blocks = wopbs_key.keyswitch_to_pbs_params(&lut_lsb).into_blocks();
-            // Eval additional LUT if output bit-width is greater than
-            // wave_depth bits
-            if encoded_luts.len() > 2 {
-                let lut_msb = wopbs_key.wopbs(&msb, &encoded_luts[2]);
-                let lut_msb_blocks = wopbs_key.keyswitch_to_pbs_params(&lut_msb).into_blocks();
-                lut_lsb_blocks.extend(lut_msb_blocks);
-            }
-            // Pad LUT output and LSB by 6 bits to avoid overflows
-            let padding_ct_block = server_key
-                .create_trivial_zero_radix::<RadixCiphertext>(3)
-                .into_blocks();
-            lut_lsb_blocks.extend(padding_ct_block.clone());
-            let mut lsb_blocks = lsb.clone().into_blocks();
-            lsb_blocks.extend(padding_ct_block);
-            let mut lut_combined = RadixCiphertext::from_blocks(lut_lsb_blocks);
-            let lsb_extended = RadixCiphertext::from_blocks(lsb_blocks);
-
-            // subtract offset (if necessary)
-            if (offset.abs() as u64) > 0 {
-                lut_combined =
-                    server_key.scalar_sub_parallelized(&lut_combined, offset.abs() as u64);
-            }
-
-            // l1 = 2^J - lsb
-            let scalar_l1: RadixCiphertext =
-                server_key.create_trivial_radix(2u64.pow(wave_depth as u32), nb_blocks_lsb + 1);
-            let scalar_l1 = server_key.sub_parallelized(&scalar_l1, &lsb_extended);
-
-            // Multiply l1 by LUT output
-            server_key.mul_parallelized(&lut_combined, &scalar_l1)
-        },
-        || {
-            // Eval LUT over MSBs
-            let lut_lsb = wopbs_key.wopbs(&msb, &encoded_luts[1]);
-            let mut lut_lsb_blocks = wopbs_key.keyswitch_to_pbs_params(&lut_lsb).into_blocks();
-            // Eval additional LUT if output bit-width is greater than
-            // wave_depth bits
-            if encoded_luts.len() > 2 {
-                let lut_msb = wopbs_key.wopbs(&msb, &encoded_luts[3]);
-                let lut_msb_blocks = wopbs_key.keyswitch_to_pbs_params(&lut_msb).into_blocks();
-                lut_lsb_blocks.extend(lut_msb_blocks);
-            }
-            // Pad LUT output and LSB by 6 bits to avoid overflows
-            let padding_ct_block = server_key
-                .create_trivial_zero_radix::<RadixCiphertext>(3)
-                .into_blocks();
-            lut_lsb_blocks.extend(padding_ct_block.clone());
-            let mut lsb_blocks = lsb.clone().into_blocks();
-            lsb_blocks.extend(padding_ct_block);
-            let mut lut_combined = RadixCiphertext::from_blocks(lut_lsb_blocks);
-            let lsb_extended = RadixCiphertext::from_blocks(lsb_blocks);
-
-            // subtract offset (if necessary)
-            if (offset.abs() as u64) > 0 {
-                lut_combined =
-                    server_key.scalar_sub_parallelized(&lut_combined, offset.abs() as u64);
-            }
-            // l2 = lsb
-            // Multiply MSBs and LSBs
-            server_key.mul_parallelized(&lut_combined, &lsb_extended)
-        },
-    );
-    let probability = server_key.add_parallelized(&output_1, &output_2);
-    (probability, start.elapsed().as_secs_f64())
-}
 
 fn main() {
     // ------- Client side ------- //
@@ -685,7 +394,7 @@ fn main() {
         false,
         // &client_key,
     );
-    // let dwt_sig_bounded: u64 = client_key.decrypt(&sig_ct_haar);
+    let dwt_sig_bounded: u64 = client_key.decrypt(&sig_ct_haar);
     println!("Sigmoid (Haar) time (bounded): {:?}", dwt_time);
 
     // 4.3 sigmoid(x) using Quantized LUT
@@ -739,14 +448,16 @@ fn main() {
     println!("Sigmoid (Bior LUT) time: {:?}", lut_time_bior);
 
     println!(
-        "--- LUT: {:?}, DWT LUT: {:?}, Quant LUT: {:?}, Bior LUT: {:?}\
-         \n--- unq: LUT: {:?}, DWT LUT: {:?}, Quant LUT {:?}, Bior LUT: {:?}",
+        "--- LUT: {:?}, DWT LUT: {:?}, Bounded DWT LUT: {:?}, Quant LUT: {:?}, Bior LUT: {:?}\
+         \n--- unq: LUT: {:?}, DWT LUT: {:?}, Bounded DWT LUT: {:?}, Quant LUT {:?}, Bior LUT: {:?}",
         lut_sig,
         dwt_lut_sig,
+        dwt_sig_bounded,
         lut_sig_quant,
         lut_sig_bior >> 4,
         unquantize(lut_sig, precision, bit_width as u8),
         unquantize(dwt_lut_sig, precision, bit_width as u8),
+        unquantize(dwt_sig_bounded, precision, bit_width as u8),
         unquantize(lut_sig_quant, precision, bit_width as u8),
         unquantize(lut_sig_bior >> 4, precision, bit_width as u8),
     );
@@ -971,7 +682,7 @@ fn main() {
         true,
         // &client_key,
     );
-    // let dwt_tanh_bounded: u64 = client_key.decrypt(&tanh_ct_haar);
+    let dwt_tanh_bounded: u64 = client_key.decrypt(&tanh_ct_haar);
     println!("Tanh (Haar) time (bounded): {:?}", dwt_time);
 
     // 7.3 tanh(x) using Quantized LUT
@@ -1014,14 +725,16 @@ fn main() {
     println!("Tanh (Bior LUT) time: {:?}", lut_time_bior);
 
     println!(
-        "--- LUT: {:?}, DWT LUT: {:?}, Quant LUT: {:?}, Bior LUT: {:?}\
-         \n--- unq: LUT: {:?}, DWT LUT: {:?}, Quant LUT {:?}, Bior LUT: {:?}",
+        "--- LUT: {:?}, DWT LUT: {:?}, Bounded DWT LUT: {:?}, Quant LUT: {:?}, Bior LUT: {:?}\
+         \n--- unq: LUT: {:?}, DWT LUT: {:?}, Bounded DWT LUT: {:?}, Quant LUT {:?}, Bior LUT: {:?}",
         lut_tanh,
         dwt_tanh,
+        dwt_tanh_bounded,
         lut_tanh_quant,
         lut_tanh_bior >> 2,
         unquantize(lut_tanh, precision, bit_width as u8),
         unquantize(dwt_tanh, precision, bit_width as u8),
+        unquantize(dwt_tanh_bounded, precision, bit_width as u8),
         unquantize(lut_tanh_quant, precision, bit_width as u8),
         unquantize(lut_tanh_bior >> 2, precision, bit_width as u8),
     );

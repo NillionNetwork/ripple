@@ -3,7 +3,7 @@ use std::time::Instant;
 use image::ImageBuffer;
 use num_integer::Roots;
 use rayon::prelude::*;
-use ripple::common::*;
+use ripple::common::ct_lut_eval_quantized_no_gen;
 use tfhe::{
     integer::{
         gen_keys_radix, wopbs::*, IntegerCiphertext, IntegerRadixCiphertext, RadixCiphertext,
@@ -87,7 +87,8 @@ fn main() {
 
     let lut_gen_start = Instant::now();
     println!("Generating LUT.");
-    let mut dummy: RadixCiphertext = server_key.create_trivial_radix(2_u64, (nb_blocks).into());
+    let mut dummy: RadixCiphertext =
+        server_key.create_trivial_radix(2_u64, (nb_blocks >> 1).into());
     dummy = wopbs_key.keyswitch_to_wopbs_params(&server_key, &dummy);
     let mut dummy_blocks = dummy.clone().into_blocks().to_vec();
     for block in &mut dummy_blocks {
@@ -150,7 +151,13 @@ fn main() {
 
                 // Compute square root with PBS
                 // println!("gx[0] degree: {:?}", gx[0].blocks()[0].degree);
-                *pixel = ct_lut_eval_no_gen(gx[0].clone(), &wopbs_key, &server_key, &sqrt_lut);
+                *pixel = ct_lut_eval_quantized_no_gen(
+                    gx[0].clone(),
+                    nb_blocks,
+                    &wopbs_key,
+                    &server_key,
+                    &sqrt_lut,
+                );
             }
         });
     println!(

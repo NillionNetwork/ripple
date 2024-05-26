@@ -110,3 +110,15 @@ path = "src/edge_detection_ptxt.rs"
 [[bin]]
 name = "edge_detection_lut"
 path = "src/edge_detection_lut.rs"
+
+[[bin]]
+name = "edge_detection_quantized"
+path = "src/edge_detection_quantized.rs"
+
+[[bin]]
+name = "edge_detection_haar"
+path = "src/edge_detection_haar.rs"
+
+[[bin]]
+name = "edge_detection_bior"
+path = "src/edge_detection_bior.rs"

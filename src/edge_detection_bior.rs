@@ -70,10 +70,31 @@ fn main() {
     let img_gray = img.to_luma8();
     let (width, height) = img_gray.dimensions();
 
-    let nb_blocks = 8;
+    let bit_width: usize = 16;
+    let precision: usize = 12;
+    let nb_blocks: usize = bit_width >> 1;
+    let wave_depth: usize = 8;
+
+    let (sqrt_lut_lsb, sqrt_lut_msb) = bior(
+        "data/bior_lut_sqrt_16.json",
+        wave_depth as u8,
+        bit_width.try_into().unwrap(),
+    );
+    let (sqrt_lut_lsb_2, sqrt_lut_msb_2) = bior(
+        "data/bior_lut_sqrt_16_2.json",
+        wave_depth as u8,
+        bit_width.try_into().unwrap(),
+    );
+    let sqrt_luts = vec![
+        &sqrt_lut_lsb,
+        &sqrt_lut_lsb_2,
+        &sqrt_lut_msb,
+        &sqrt_lut_msb_2,
+    ];
+
     let start = Instant::now();
     // Generate radix keys
-    let (client_key, server_key) = gen_keys_radix(PARAM_MESSAGE_2_CARRY_2_KS_PBS, nb_blocks);
+    let (client_key, server_key) = gen_keys_radix(PARAM_MESSAGE_2_CARRY_2_KS_PBS, nb_blocks.into());
     // Generate key for PBS (without padding)
     let wopbs_key = WopbsKey::new_wopbs_key(
         &client_key,
@@ -87,29 +108,33 @@ fn main() {
 
     let lut_gen_start = Instant::now();
     println!("Generating LUT.");
-    let mut dummy: RadixCiphertext = server_key.create_trivial_radix(2_u64, (nb_blocks).into());
-    dummy = wopbs_key.keyswitch_to_wopbs_params(&server_key, &dummy);
-    let mut dummy_blocks = dummy.clone().into_blocks().to_vec();
+    let dummy: RadixCiphertext = server_key.create_trivial_radix(0_u64, wave_depth >> 1);
+    let mut dummy_blocks = dummy.into_blocks().to_vec();
     for block in &mut dummy_blocks {
         block.degree = Degree::new(3);
     }
-    dummy = RadixCiphertext::from_blocks(dummy_blocks);
-    let sqrt_lut = wopbs_key.generate_lut_radix(&dummy, |x: u64| x.sqrt());
+    let dummy = RadixCiphertext::from_blocks(dummy_blocks);
+    let dummy = wopbs_key.keyswitch_to_wopbs_params(&server_key, &dummy);
+    let encoded_sqrt_luts = sqrt_luts
+        .iter()
+        .map(|lut| wopbs_key.generate_lut_radix(&dummy, |x: u64| eval_lut(x, &lut.to_vec())))
+        .collect::<Vec<_>>();
     println!(
         "LUT generation done in {:?} sec.",
         lut_gen_start.elapsed().as_secs_f64()
     );
 
     let mut enc_pixels =
-        vec![server_key.create_trivial_radix(0, nb_blocks); (height * width) as usize];
+        vec![server_key.create_trivial_radix(0, nb_blocks.into()); (height * width) as usize];
     let mut enc_out_pixels =
-        vec![server_key.create_trivial_radix(0, nb_blocks); (height * width) as usize];
+        vec![server_key.create_trivial_radix(0, nb_blocks.into()); (height * width) as usize];
 
     // Encrypt image
     for i in 0..(height as usize) {
         for j in 0..(width as usize) {
             let pixel = img_gray.get_pixel(j as u32, i as u32);
-            enc_pixels[i * (width as usize) + j] = client_key.encrypt(pixel[0] as u64);
+            enc_pixels[i * (width as usize) + j] =
+                client_key.encrypt(quantize(pixel[0] as f64, precision as u8, bit_width as u8));
         }
     }
 
@@ -132,7 +157,7 @@ fn main() {
                     width as usize,
                     i,
                     j,
-                    nb_blocks,
+                    nb_blocks.into(),
                     &server_key,
                 );
                 let mut gx = square_matmul(&square, &mx, nb_blocks, &server_key);
@@ -149,21 +174,31 @@ fn main() {
                 gx[0] = server_key.add_parallelized(&gx[0], &gy[0]);
 
                 // Compute square root with PBS
-                // println!("gx[0] degree: {:?}", gx[0].blocks()[0].degree);
-                *pixel = ct_lut_eval_no_gen(gx[0].clone(), &wopbs_key, &server_key, &sqrt_lut);
+                *pixel = ct_lut_eval_bior_no_gen(
+                    gx[0].clone(),
+                    bit_width,
+                    gx[0].blocks().len(),
+                    wave_depth,
+                    &wopbs_key,
+                    0_i32,
+                    &server_key,
+                    &encoded_sqrt_luts,
+                );
             }
         });
     println!(
         "Image generated in {:?} sec.",
         start.elapsed().as_secs_f64()
     );
-
     // Save the output PNG
     let mut image_buffer = ImageBuffer::<image::Luma<u8>, _>::new(width, height);
     for i in 0..(height as usize) {
         for j in 0..(width as usize) {
-            let out_pixel: u64 = client_key.decrypt(&enc_out_pixels[i * (width as usize) + j]);
-            image_buffer.put_pixel(i as u32, j as u32, image::Luma([out_pixel as u8]));
+            let out_pixel: u64 =
+                client_key.decrypt::<u64>(&enc_out_pixels[i * (width as usize) + j]);
+            let out_pixel_unquantized: u8 =
+                unquantize(out_pixel, precision as u8, bit_width as u8).round() as u8;
+            image_buffer.put_pixel(i as u32, j as u32, image::Luma([out_pixel_unquantized]));
         }
     }
     let _ = image::DynamicImage::ImageLuma8(image_buffer).save("out_test.png");

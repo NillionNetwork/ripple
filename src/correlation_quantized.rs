@@ -2,19 +2,23 @@ use std::time::Instant;
 
 use num_integer::Roots;
 use rayon::prelude::*;
-use ripple::common::{self, ct_lut_eval_no_gen};
+use ripple::common::*;
 use tfhe::{
     integer::{
-        gen_keys_radix, wopbs::*, IntegerCiphertext, IntegerRadixCiphertext, RadixCiphertext,
+        ciphertext::BaseRadixCiphertext, gen_keys_radix, wopbs::*, IntegerCiphertext,
+        IntegerRadixCiphertext, RadixCiphertext,
     },
-    shortint::parameters::{
-        parameters_wopbs_message_carry::WOPBS_PARAM_MESSAGE_2_CARRY_2_KS_PBS, Degree,
-        PARAM_MESSAGE_2_CARRY_2_KS_PBS,
+    shortint::{
+        parameters::{
+            parameters_wopbs_message_carry::WOPBS_PARAM_MESSAGE_2_CARRY_2_KS_PBS, Degree,
+            PARAM_MESSAGE_2_CARRY_2_KS_PBS,
+        },
+        Ciphertext,
     },
 };
 
 fn main() {
-    let data = common::read_csv("data/correlation.csv");
+    let data = read_csv("data/correlation.csv");
     let experience = &data[0];
     let salaries = &data[1];
     let dataset_size = salaries.len() as f64;
@@ -78,7 +82,7 @@ fn main() {
     for block in &mut dummy_blocks {
         block.degree = Degree::new(3);
     }
-    dummy = RadixCiphertext::from_blocks(dummy_blocks);
+    dummy = RadixCiphertext::from_blocks(dummy_blocks[0..(nb_blocks as usize >> 1)].to_vec());
     let sqrt_lut = wopbs_key.generate_lut_radix(&dummy, |x: u64| {
         if x == 0 {
             1 // avoid division with zero error.
@@ -101,8 +105,19 @@ fn main() {
         |acc: RadixCiphertext, salary| server_key.add_parallelized(&acc, salary),
     );
     // println!("salaries_sum_enc degree: {:?}", salaries_sum_enc.blocks()[0].degree);
-    let salaries_mean_enc = ct_lut_eval_no_gen(salaries_sum_enc, &wopbs_key, &server_key, &div_lut);
-
+    let salaries_mean_enc = ct_lut_eval_quantized_no_gen(
+        salaries_sum_enc,
+        nb_blocks,
+        &wopbs_key,
+        &server_key,
+        &div_lut,
+    );
+    let mut salaries_mean_enc_blocks = salaries_mean_enc.clone().blocks().to_vec();
+    let zero_ct: BaseRadixCiphertext<Ciphertext> =
+        server_key.create_trivial_radix(0_u64, nb_blocks >> 1);
+    let zero_ct_blocks = zero_ct.clone().blocks().to_vec();
+    salaries_mean_enc_blocks.extend(zero_ct_blocks.clone());
+    let salaries_mean_enc = RadixCiphertext::from_blocks(salaries_mean_enc_blocks);
     // Cov = Sum_i^n (salary_i - mean(salary))(experience_i - mean(experience))
     let covariance = encrypted_salaries
         .iter()
@@ -129,9 +144,18 @@ fn main() {
         );
 
     // sigma_salary (or stddev) = sqrt(var_salary)
-    // println!("salaries_variance_enc degree: {:?}", salaries_variance_enc.blocks()[0].degree);
-    let salaries_stddev_enc =
-        ct_lut_eval_no_gen(salaries_variance_enc, &wopbs_key, &server_key, &sqrt_lut);
+    // println!("salaries_variance_enc degree: {:?}",
+    // salaries_variance_enc.blocks()[0].degree);
+    let salaries_stddev_enc = ct_lut_eval_quantized_no_gen(
+        salaries_variance_enc,
+        nb_blocks,
+        &wopbs_key,
+        &server_key,
+        &sqrt_lut,
+    );
+    let mut salaries_stddev_enc_blocks = salaries_stddev_enc.clone().blocks().to_vec();
+    salaries_stddev_enc_blocks.extend(zero_ct_blocks);
+    let salaries_stddev_enc = RadixCiphertext::from_blocks(salaries_stddev_enc_blocks);
     let correlation_enc = server_key.mul_parallelized(&salaries_stddev_enc, &covariance);
 
     println!(

@@ -77,6 +77,18 @@ path = "src/correlation_ptxt.rs"
 name = "correlation_lut"
 path = "src/correlation_lut.rs"
 
+[[bin]]
+name = "correlation_quantized"
+path = "src/correlation_quantized.rs"
+
+[[bin]]
+name = "correlation_haar"
+path = "src/correlation_haar.rs"
+
+[[bin]]
+name = "correlation_bior"
+path = "src/correlation_bior.rs"
+
 # Euclidean Distance
 
 [[bin]]

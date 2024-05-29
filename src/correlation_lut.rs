@@ -72,7 +72,7 @@ fn main() {
     // Offline: LUT genaration is offline cost.
     let lut_gen_start = Instant::now();
     println!("Generating LUT.");
-    let mut dummy: RadixCiphertext = server_key.create_trivial_radix(2_u64, (nb_blocks).into());
+    let mut dummy: RadixCiphertext = server_key.create_trivial_radix(2_u64, nb_blocks);
     dummy = wopbs_key.keyswitch_to_wopbs_params(&server_key, &dummy);
     let mut dummy_blocks = dummy.clone().into_blocks().to_vec();
     for block in &mut dummy_blocks {

@@ -35,13 +35,13 @@ fn main() {
     let (div_lut_lsb_2, div_lut_msb_2) =
         bior("data/bior_lut_div_16_2.json", wave_depth as u8, bit_width);
 
-    let sqrt_luts = vec![
+    let sqrt_luts = [
         &sqrt_lut_lsb,
         &sqrt_lut_lsb_2,
         &sqrt_lut_msb,
         &sqrt_lut_msb_2,
     ];
-    let div_luts = vec![&div_lut_lsb, &div_lut_lsb_2, &div_lut_msb, &div_lut_msb_2];
+    let div_luts = [&div_lut_lsb, &div_lut_lsb_2, &div_lut_msb, &div_lut_msb_2];
 
     // Number of blocks per ciphertext
     let nb_blocks = bit_width / 2;
@@ -71,7 +71,7 @@ fn main() {
     let start = Instant::now();
     let encrypted_salaries: Vec<_> = salaries_sorted
         .par_iter() // Use par_iter() for parallel iteration
-        .map(|&salary| client_key.encrypt(quantize(salary as f64, precision, bit_width as u8)))
+        .map(|&salary| client_key.encrypt(quantize(salary as f64, precision, bit_width)))
         .collect();
     println!(
         "Encryption done in {:?} sec.",
@@ -178,7 +178,7 @@ fn main() {
 
     // ------- Client side ------- //
     let correlation: u64 = client_key.decrypt(&correlation_enc);
-    let correlation_final: f64 = unquantize(correlation, precision, bit_width as u8);
+    let correlation_final: f64 = unquantize(correlation, precision, bit_width);
 
     println!("Correlation: {}", correlation_final / (scale as f64));
 }

@@ -27,13 +27,13 @@ fn main() {
     let (div_lut_lsb, div_lut_msb) = bior("data/bior_lut_div_16.json", j as u8, bit_width);
     let (div_lut_lsb_2, div_lut_msb_2) = bior("data/bior_lut_div_16_2.json", j as u8, bit_width);
 
-    let sqrt_luts = vec![
+    let sqrt_luts = [
         &sqrt_lut_lsb,
         &sqrt_lut_lsb_2,
         &sqrt_lut_msb,
         &sqrt_lut_msb_2,
     ];
-    let div_luts = vec![&div_lut_lsb, &div_lut_lsb_2, &div_lut_msb, &div_lut_msb_2];
+    let div_luts = [&div_lut_lsb, &div_lut_lsb_2, &div_lut_msb, &div_lut_msb_2];
 
     // Number of blocks per ciphertext
     let nb_blocks = bit_width / 2;
@@ -59,7 +59,7 @@ fn main() {
     let start = Instant::now();
     let xs_enc: Vec<_> = xs
         .par_iter() // Use par_iter() for parallel iteration
-        .map(|&x| client_key.encrypt(quantize(x as f64, precision, bit_width as u8)))
+        .map(|&x| client_key.encrypt(quantize(x as f64, precision, bit_width)))
         .collect();
     println!(
         "Encryption done in {:?} sec.",
@@ -165,7 +165,7 @@ fn main() {
 
     // ------- Client side ------- //
     let mean_distance: u64 = client_key.decrypt(&dists_mean_enc);
-    let mean_distance: f64 = unquantize(mean_distance, precision, bit_width as u8);
+    let mean_distance: f64 = unquantize(mean_distance, precision, bit_width);
 
     println!(
         "Mean of {} Euclidean distances: {}",

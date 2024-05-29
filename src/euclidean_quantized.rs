@@ -55,13 +55,13 @@ fn main() {
     // ------- Server side ------- //
     let lut_gen_start = Instant::now();
     println!("Generating LUT.");
-    let mut dummy: RadixCiphertext = server_key.create_trivial_radix(2_u64, (nb_blocks).into());
+    let mut dummy: RadixCiphertext = server_key.create_trivial_radix(2_u64, nb_blocks);
     dummy = wopbs_key.keyswitch_to_wopbs_params(&server_key, &dummy);
     let mut dummy_blocks = dummy.clone().into_blocks().to_vec();
     for block in &mut dummy_blocks {
         block.degree = Degree::new(3);
     }
-    dummy = RadixCiphertext::from_blocks(dummy_blocks[0..(nb_blocks as usize >> 1)].to_vec());
+    dummy = RadixCiphertext::from_blocks(dummy_blocks[0..(nb_blocks >> 1)].to_vec());
     let sqrt_lut = wopbs_key.generate_lut_radix(&dummy, |x: u64| x.sqrt());
     let div_lut = wopbs_key.generate_lut_radix(&dummy, |x: u64| x / (num_iter as u64));
     println!(

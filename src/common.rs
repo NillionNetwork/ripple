@@ -316,7 +316,7 @@ pub fn ct_lut_eval_quantized_no_gen(
     server_key: &ServerKey,
     quantized_lut: &IntegerWopbsLUT,
 ) -> RadixCiphertext {
-    let quant_blocks = &ct.into_blocks()[(nb_blocks >> 1)..nb_blocks];
+    let quant_blocks = &ct.into_blocks()[0..(nb_blocks >> 1)];
     let quantized_ct = RadixCiphertext::from_blocks(quant_blocks.to_vec());
     let quantized_ct = wopbs_key.keyswitch_to_wopbs_params(server_key, &quantized_ct);
     let quantized_ct = wopbs_key.wopbs(&quantized_ct, &quantized_lut);

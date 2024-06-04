@@ -16,18 +16,14 @@ fn my_sqrt(value: f64) -> f64 {
     value.sqrt()
 }
 
-fn my_div(value: f64) -> f64 {
-    value / 3_f64
-}
-
 fn main() {
     let data = read_csv("data/euclidean.csv");
     let xs = &data[0];
-    let num_iter = 3;
+    let num_iter = 1;
 
     // ------- Client side ------- //
     let bit_width = 16;
-    let precision = 6;
+    let precision = 2;
     // Number of blocks per ciphertext
     let nb_blocks = bit_width / 2;
     println!(
@@ -71,24 +67,14 @@ fn main() {
     let dummy = wopbs_key.keyswitch_to_wopbs_params(&server_key, &dummy);
 
     let (haar_lsb, haar_msb) = haar(
-        precision,
-        precision,
+        precision * 2,
+        precision * 4,
         bit_width as u8,
         bit_width as u8,
         &my_sqrt,
     );
     let haar_lsb_lut_sqrt = wopbs_key.generate_lut_radix(&dummy, |x: u64| eval_lut(x, &haar_lsb));
     let haar_msb_lut_sqrt = wopbs_key.generate_lut_radix(&dummy, |x: u64| eval_lut(x, &haar_msb));
-    let (haar_lsb, haar_msb) = haar(
-        precision,
-        precision,
-        bit_width as u8,
-        bit_width as u8,
-        &my_div,
-    );
-    let haar_lsb_lut_div = wopbs_key.generate_lut_radix(&dummy, |x: u64| eval_lut(x, &haar_lsb));
-    let haar_msb_lut_div = wopbs_key.generate_lut_radix(&dummy, |x: u64| eval_lut(x, &haar_msb));
-
     println!(
         "LUT generation done in {:?} sec.",
         lut_gen_start.elapsed().as_secs_f64()
@@ -106,9 +92,8 @@ fn main() {
             let ys = &data[i];
 
             // Compute the encrypted euclidean distance
-
             let start = Instant::now();
-            println!("{}) Starting computing Squared Euclidean distance", i);
+            println!("Starting computing Squared Euclidean distance");
 
             let euclid_squared_enc = xs_enc
                 .iter()
@@ -122,12 +107,10 @@ fn main() {
                     |acc: RadixCiphertext, diff| server_key.add_parallelized(&acc, &diff),
                 );
             println!(
-                "{}) Finished computing Squared Euclidean distance in {:?} sec.",
-                i,
+                "Finished computing Squared Euclidean distance in {:?} sec.",
                 start.elapsed().as_secs_f64()
             );
-            // println!("euclid_squared_enc degree: {:?}", euclid_squared_enc.blocks()[0].degree);
-            println!("{}) Starting computing square root", i);
+            println!("Starting computing square root");
             let distance_enc = ct_lut_eval_haar_no_gen(
                 euclid_squared_enc,
                 nb_blocks,
@@ -137,40 +120,21 @@ fn main() {
                 &haar_msb_lut_sqrt,
             );
             println!(
-                "{}) Finished computing square root in {:?} sec.",
-                i,
+                "Finished computing square root in {:?} sec.",
                 start.elapsed().as_secs_f64()
             );
 
             distance_enc
         })
-        .collect::<Vec<_>>()
-        .into_iter()
-        .fold(
-            server_key.create_trivial_radix(0_u64, nb_blocks),
-            |acc: RadixCiphertext, diff| server_key.add_parallelized(&acc, &diff),
-        );
-
-    // println!("sum_dists degree: {:?}", sum_dists.blocks()[0].degree);
-    let dists_mean_enc = ct_lut_eval_haar_no_gen(
-        sum_dists,
-        nb_blocks,
-        &wopbs_key,
-        &server_key,
-        &haar_lsb_lut_div,
-        &haar_msb_lut_div,
-    );
+        .collect::<Vec<_>>();
     println!(
-        "Finished computing everything in {:?} sec.",
+        "Finished computing Euclidean distance in {:?} sec.",
         bench_start.elapsed().as_secs_f64()
     );
 
     // ------- Client side ------- //
-    let mean_distance: u64 = client_key.decrypt(&dists_mean_enc);
-    let mean_distance: f64 = unquantize(mean_distance, precision, bit_width as u8);
+    let mean_distance: u64 = client_key.decrypt(&sum_dists[0]);
+    let mean_distance: f64 = unquantize(mean_distance, precision * 4, bit_width as u8);
 
-    println!(
-        "Mean of {} Euclidean distances: {}",
-        num_iter, mean_distance
-    );
+    println!("Euclidean distance: {}", mean_distance);
 }

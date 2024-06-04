@@ -13,19 +13,10 @@ use tfhe::{
     },
 };
 
-/// d(x, y) = sqrt( sum((xi - yi)^2) )
-// fn euclidean(x: &[u32], y: &[u32]) -> f32 {
-//     x.iter()
-//         .zip(y.iter())
-//         .map(|(&xi, &yi)| (xi - yi).pow(2) as f32)
-//         .sum::<f32>()
-//         .sqrt()
-// }
-
 fn main() {
     let data = common::read_csv("data/euclidean.csv");
     let xs = &data[0];
-    let num_iter = 3;
+    let num_iter = 1;
 
     // ------- Client side ------- //
     let bit_width = 16;
@@ -72,7 +63,6 @@ fn main() {
     }
     dummy = RadixCiphertext::from_blocks(dummy_blocks);
     let sqrt_lut = wopbs_key.generate_lut_radix(&dummy, |x: u64| x.sqrt());
-    let div_lut = wopbs_key.generate_lut_radix(&dummy, |x: u64| x / (num_iter as u64));
     println!(
         "LUT generation done in {:?} sec.",
         lut_gen_start.elapsed().as_secs_f64()
@@ -89,13 +79,8 @@ fn main() {
         .map(|i| {
             let ys = &data[i];
 
-            // let distance = euclidean(xs, ys);
-            // println!("{}) Ptxt Euclidean distance: {}", i, distance);
-
-            // Compute the encrypted euclidean distance
-
             let start = Instant::now();
-            println!("{}) Starting computing Squared Euclidean distance", i);
+            println!("Starting computing Squared Euclidean distance");
 
             let euclid_squared_enc = xs_enc
                 .iter()
@@ -109,37 +94,26 @@ fn main() {
                     |acc: RadixCiphertext, diff| server_key.add_parallelized(&acc, &diff),
                 );
             println!(
-                "{}) Finished computing Squared Euclidean distance in {:?} sec.",
-                i,
+                "Finished computing Squared Euclidean distance in {:?} sec.",
                 start.elapsed().as_secs_f64()
             );
-            // println!("euclid_squared_enc degree: {:?}", euclid_squared_enc.blocks()[0].degree);
-            println!("{}) Starting computing square root", i);
+            println!("Starting computing square root",);
             let distance_enc =
                 ct_lut_eval_no_gen(euclid_squared_enc, &wopbs_key, &server_key, &sqrt_lut);
             println!(
-                "{}) Finished computing square root in {:?} sec.",
-                i,
+                "Finished computing square root in {:?} sec.",
                 start.elapsed().as_secs_f64()
             );
 
             distance_enc
         })
-        .collect::<Vec<_>>()
-        .into_iter()
-        .fold(
-            server_key.create_trivial_radix(0_u64, nb_blocks),
-            |acc: RadixCiphertext, diff| server_key.add_parallelized(&acc, &diff),
-        );
-
-    // println!("sum_dists degree: {:?}", sum_dists.blocks()[0].degree);
-    let dists_mean_enc = ct_lut_eval_no_gen(sum_dists, &wopbs_key, &server_key, &div_lut);
+        .collect::<Vec<_>>();
     println!(
-        "Finished computing everything in {:?} sec.",
+        "Finished computing Euclidean distance in {:?} sec.",
         bench_start.elapsed().as_secs_f64()
     );
     // ------- Client side ------- //
-    let mean_distance: u64 = client_key.decrypt(&dists_mean_enc);
+    let mean_distance: u64 = client_key.decrypt(&sum_dists[0]);
     println!(
         "Mean of {} Euclidean distances: {}",
         num_iter, mean_distance

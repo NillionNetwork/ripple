@@ -15,17 +15,16 @@ use tfhe::{
 fn main() {
     let data = read_csv("data/euclidean.csv");
     let xs = &data[0];
-    let num_iter = 3;
+    let num_iter = 1;
 
     // ------- Client side ------- //
     let bit_width = 16;
-    let precision = 12;
+    let precision = 2;
     let j = 8;
 
-    let (sqrt_lut_lsb, sqrt_lut_msb) = bior("data/bior_lut_sqrt_16.json", j as u8, bit_width);
-    let (sqrt_lut_lsb_2, sqrt_lut_msb_2) = bior("data/bior_lut_sqrt_16_2.json", j as u8, bit_width);
-    let (div_lut_lsb, div_lut_msb) = bior("data/bior_lut_div_16.json", j as u8, bit_width);
-    let (div_lut_lsb_2, div_lut_msb_2) = bior("data/bior_lut_div_16_2.json", j as u8, bit_width);
+    let (sqrt_lut_lsb, sqrt_lut_msb) = bior("data/euclidean_sqrt_16.json", j as u8, bit_width);
+    let (sqrt_lut_lsb_2, sqrt_lut_msb_2) =
+        bior("data/euclidean_sqrt_16_2.json", j as u8, bit_width);
 
     let sqrt_luts = [
         &sqrt_lut_lsb,
@@ -33,7 +32,6 @@ fn main() {
         &sqrt_lut_msb,
         &sqrt_lut_msb_2,
     ];
-    let div_luts = [&div_lut_lsb, &div_lut_lsb_2, &div_lut_msb, &div_lut_msb_2];
 
     // Number of blocks per ciphertext
     let nb_blocks = bit_width / 2;
@@ -80,10 +78,6 @@ fn main() {
         .iter()
         .map(|lut| wopbs_key.generate_lut_radix(&dummy, |x: u64| eval_lut(x, &lut.to_vec())))
         .collect::<Vec<_>>();
-    let encoded_div_luts = div_luts
-        .iter()
-        .map(|lut| wopbs_key.generate_lut_radix(&dummy, |x: u64| eval_lut(x, &lut.to_vec())))
-        .collect::<Vec<_>>();
     println!(
         "LUT generation done in {:?} sec.",
         lut_gen_start.elapsed().as_secs_f64()
@@ -102,7 +96,7 @@ fn main() {
             // Compute the encrypted euclidean distance
 
             let start = Instant::now();
-            println!("{}) Starting computing Squared Euclidean distance", i);
+            println!("Starting computing Squared Euclidean distance");
 
             let euclid_squared_enc = xs_enc
                 .iter()
@@ -116,12 +110,10 @@ fn main() {
                     |acc: RadixCiphertext, diff| server_key.add_parallelized(&acc, &diff),
                 );
             println!(
-                "{}) Finished computing Squared Euclidean distance in {:?} sec.",
-                i,
+                "Finished computing Squared Euclidean distance in {:?} sec.",
                 start.elapsed().as_secs_f64()
             );
-            // println!("euclid_squared_enc degree: {:?}", euclid_squared_enc.blocks()[0].degree);
-            println!("{}) Starting computing square root", i);
+            println!("Starting computing square root");
             let distance_enc = ct_lut_eval_bior_no_gen(
                 euclid_squared_enc,
                 bit_width.into(),
@@ -133,42 +125,20 @@ fn main() {
                 &encoded_sqrt_luts,
             );
             println!(
-                "{}) Finished computing square root in {:?} sec.",
-                i,
+                "Finished computing square root in {:?} sec.",
                 start.elapsed().as_secs_f64()
             );
-
             distance_enc
         })
-        .collect::<Vec<_>>()
-        .into_iter()
-        .fold(
-            server_key.create_trivial_radix(0_u64, nb_blocks.into()),
-            |acc: RadixCiphertext, diff| server_key.add_parallelized(&acc, &diff),
-        );
-
-    // println!("sum_dists degree: {:?}", sum_dists.blocks()[0].degree);
-    let dists_mean_enc = ct_lut_eval_bior_no_gen(
-        sum_dists,
-        bit_width.into(),
-        nb_blocks.into(),
-        j,
-        &wopbs_key,
-        0_i32,
-        &server_key,
-        &encoded_div_luts,
-    );
+        .collect::<Vec<_>>();
     println!(
-        "Finished computing everything in {:?} sec.",
+        "Finished computing Euclidean distance in {:?} sec.",
         bench_start.elapsed().as_secs_f64()
     );
 
     // ------- Client side ------- //
-    let mean_distance: u64 = client_key.decrypt(&dists_mean_enc);
-    let mean_distance: f64 = unquantize(mean_distance, precision, bit_width);
+    let mean_distance: u64 = client_key.decrypt(&sum_dists[0]);
+    let mean_distance: f64 = unquantize(mean_distance, precision * 4, bit_width);
 
-    println!(
-        "Mean of {} Euclidean distances: {}",
-        num_iter, mean_distance
-    );
+    println!("Euclidean distance: {}", mean_distance);
 }

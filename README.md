@@ -8,7 +8,7 @@
 </p>
 
 ## How to cite this work
-The preprint can be accessed [here](https://eprint.iacr.org/2024/XXX); you can
+The preprint can be accessed [here](https://eprint.iacr.org/2024/866); you can
 cite this work as follows:
 ```bibtex
 @Misc{EPRINT:GUMVT24,
@@ -19,8 +19,8 @@ cite this work as follows:
                   Nektarios Georgios Tsoutsos",
   title =        "{Ripple: Accelerating Programmable Bootstraps for FHE with Wavelet Approximations}",
   year =         2024,
-  howpublished = "Cryptology ePrint Archive, Report 2024/XXX",
-  note =         "\url{https://eprint.iacr.org/2024/XXX}",
+  howpublished = "Cryptology ePrint Archive, Report 2024/866",
+  note =         "\url{https://eprint.iacr.org/2024/866}",
 }
 ```
 

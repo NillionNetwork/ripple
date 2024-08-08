@@ -8,19 +8,22 @@
 </p>
 
 ## How to cite this work
+
+Ripple will appear in the proceedings of the 27th Information Security Conference (ISC), 2024.
 The preprint can be accessed [here](https://eprint.iacr.org/2024/866); you can
 cite this work as follows:
 ```bibtex
-@Misc{EPRINT:GUMVT24,
-  author =       "Charles Gouert and
-                  Mehmet Ugurbil and
-                  Dimitris Mouris and
-                  Miguel de Vega and
-                  Nektarios Georgios Tsoutsos",
-  title =        "{Ripple: Accelerating Programmable Bootstraps for FHE with Wavelet Approximations}",
-  year =         2024,
-  howpublished = "Cryptology ePrint Archive, Report 2024/866",
-  note =         "\url{https://eprint.iacr.org/2024/866}",
+@InProceedings{ISC:GUMVT24,
+  author =      "Charles Gouert and
+                 Mehmet Ugurbil and
+                 Dimitris Mouris and
+                 Miguel de Vega and
+                 Nektarios Georgios Tsoutsos",
+  title =       "{Ripple: Accelerating Programmable Bootstraps for FHE with Wavelet Approximations}",
+  booktitle =   "{International Conference on Information Security}",
+  year =        2024,
+  publisher =   "Springer",
+  pages =       "1--20",
 }
 ```
 
